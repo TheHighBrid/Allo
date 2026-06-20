@@ -91,6 +91,21 @@ fun CallApp(
             }
         )
     }
+
+    // Surface real connection errors so they can be diagnosed (the call screen
+    // otherwise just returns home, hiding why it ended).
+    val err = state.errorMessage
+    val isRealError = err != null &&
+        err != CallViewModel.NEED_MIC &&
+        err != CallViewModel.DEMO_NOTICE
+    if (isRealError && (state.phase == CallPhase.IDLE || state.phase == CallPhase.ENDED)) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearError() },
+            confirmButton = { TextButton(onClick = { viewModel.clearError() }) { Text("OK") } },
+            title = { Text("Call could not connect") },
+            text = { Text(err ?: "", color = Color.White) }
+        )
+    }
 }
 
 @Composable

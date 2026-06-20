@@ -129,7 +129,16 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             agentId = config.agentId,
             apiKey = config.apiKey,
             listener = object : ConversationalAiClient.Listener {
-            override fun onConnected() = onSessionActive(demo = false)
+            override fun onConnected() {
+                _state.update { it.copy(phase = CallPhase.CONNECTING) }
+            }
+            override fun onReady() {
+                // Agent acknowledged; start streaming the mic and go live.
+                if (mic == null) {
+                    mic = MicRecorder { chunk -> client?.sendAudio(chunk) }.also { it.start() }
+                }
+                onSessionActive(demo = false)
+            }
             override fun onAgentAudio(pcm: ByteArray) {
                 player?.write(pcm)
                 markSpeaking()
@@ -149,8 +158,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         })
         client = ai
         ai.start()
-
-        mic = MicRecorder { chunk -> ai.sendAudio(chunk) }.also { it.start() }
     }
 
     private fun onSessionActive(demo: Boolean) {
@@ -263,6 +270,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun voiceId(): String = config.voiceId
+
+    fun clearError() = _state.update { it.copy(errorMessage = null) }
 
     fun isConsentAccepted(): Boolean = config.consentAccepted
     fun acceptConsent() { config.consentAccepted = true }

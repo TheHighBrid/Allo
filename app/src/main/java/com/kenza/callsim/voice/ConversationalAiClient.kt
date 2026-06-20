@@ -36,6 +36,8 @@ class ConversationalAiClient(
 
     interface Listener {
         fun onConnected()
+        /** Fired when the agent sends conversation_initiation_metadata — safe to stream mic audio now. */
+        fun onReady()
         fun onAgentAudio(pcm: ByteArray)
         fun onUserTranscript(text: String)
         fun onAgentText(text: String)
@@ -98,10 +100,9 @@ class ConversationalAiClient(
         socket = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "socket open")
-                // No init message is sent: the agent auto-starts the conversation
-                // and streams its metadata. Sending an empty/partial
-                // conversation_initiation_client_data makes the server drop the
-                // socket, which previously ended the call after ~1 second.
+                // The first client frame must be the initiation message. We send
+                // the minimal valid form (no overrides) — same as the official SDK.
+                webSocket.send("""{"type":"conversation_initiation_client_data"}""")
                 listener.onConnected()
             }
 
@@ -129,6 +130,7 @@ class ConversationalAiClient(
     private fun handle(webSocket: WebSocket, text: String) {
         val json = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (json.optString("type")) {
+            "conversation_initiation_metadata" -> listener.onReady()
             "audio" -> {
                 val b64 = json.optJSONObject("audio_event")?.optString("audio_base_64").orEmpty()
                 if (b64.isNotEmpty()) {
