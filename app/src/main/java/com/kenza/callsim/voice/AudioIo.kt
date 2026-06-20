@@ -27,7 +27,11 @@ object AudioConfig {
  * on a background thread. Honors a mute flag so the user can silence the mic
  * without tearing down the session.
  */
-class MicRecorder(private val onChunk: (ByteArray) -> Unit) {
+class MicRecorder(
+    private val onChunk: (ByteArray) -> Unit,
+    private val onError: (String) -> Unit = {},
+    private val onStreaming: () -> Unit = {},
+) {
 
     @Volatile var muted: Boolean = false
 
@@ -41,30 +45,52 @@ class MicRecorder(private val onChunk: (ByteArray) -> Unit) {
         val minBuf = AudioRecord.getMinBufferSize(
             AudioConfig.SAMPLE_RATE, AudioConfig.CHANNEL_IN, AudioConfig.ENCODING
         )
+        if (minBuf <= 0) {
+            onError("This device can't record 16 kHz mono audio.")
+            return
+        }
         // ~250 ms of audio per read keeps latency low without flooding the socket.
         val chunkBytes = AudioConfig.SAMPLE_RATE / 4 * 2
         val bufSize = maxOf(minBuf, chunkBytes)
 
-        record = AudioRecord(
+        // Some devices/ROMs fail to open VOICE_COMMUNICATION (AEC) capture; fall
+        // back to the plain mic so we always have an input source.
+        val sources = intArrayOf(
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            AudioConfig.SAMPLE_RATE,
-            AudioConfig.CHANNEL_IN,
-            AudioConfig.ENCODING,
-            bufSize
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT,
         )
-        if (record?.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "AudioRecord failed to initialize")
+        for (src in sources) {
+            val r = runCatching {
+                AudioRecord(src, AudioConfig.SAMPLE_RATE, AudioConfig.CHANNEL_IN, AudioConfig.ENCODING, bufSize)
+            }.getOrNull()
+            if (r != null && r.state == AudioRecord.STATE_INITIALIZED) {
+                record = r
+                Log.i(TAG, "AudioRecord initialized with source=$src")
+                break
+            }
+            runCatching { r?.release() }
+        }
+        if (record == null) {
+            onError("Microphone is unavailable (couldn't open an audio input).")
             return
         }
 
         running = true
-        record?.startRecording()
+        runCatching { record?.startRecording() }
+            .onFailure { onError("Couldn't start the microphone: ${it.message}"); running = false; return }
+
+        var announced = false
         worker = thread(name = "mic-recorder") {
             val buffer = ByteArray(chunkBytes)
             while (running) {
                 val read = record?.read(buffer, 0, buffer.size) ?: -1
-                if (read > 0 && !muted) {
-                    onChunk(buffer.copyOf(read))
+                if (read > 0) {
+                    if (!announced) { announced = true; onStreaming() }
+                    if (!muted) onChunk(buffer.copyOf(read))
+                } else if (read < 0) {
+                    onError("Microphone read error ($read).")
+                    break
                 }
             }
         }

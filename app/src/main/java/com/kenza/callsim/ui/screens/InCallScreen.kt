@@ -65,6 +65,15 @@ fun InCallScreen(
         Spacer(Modifier.height(6.dp))
         Text(statusLine(state), color = IOSColors.SecondaryLabel, fontSize = 17.sp)
 
+        if (state.phase == CallPhase.ACTIVE) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (state.micStreaming) "🎙 mic streaming" else "⚠ waiting for mic…",
+                color = if (state.micStreaming) IOSColors.Green else Color(0xFFFFCC00),
+                fontSize = 13.sp
+            )
+        }
+
         if (state.lastAgentText.isNotEmpty() && state.phase == CallPhase.ACTIVE) {
             Spacer(Modifier.height(18.dp))
             Text(

@@ -135,7 +135,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onReady() {
                 // Agent acknowledged; start streaming the mic and go live.
                 if (mic == null) {
-                    mic = MicRecorder { chunk -> client?.sendAudio(chunk) }.also { it.start() }
+                    mic = MicRecorder(
+                        onChunk = { chunk -> client?.sendAudio(chunk) },
+                        onError = { msg -> postError("Microphone: $msg") },
+                        onStreaming = { _state.update { it.copy(micStreaming = true) } }
+                    ).also { it.start() }
                 }
                 onSessionActive(demo = false)
             }
@@ -231,6 +235,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 isMuted = false,
                 isSpeakerOn = false,
                 isKeypadVisible = false,
+                micStreaming = false,
                 activity = AgentActivity.IDLE
             )
         }
