@@ -5,7 +5,7 @@ import android.content.Context
 import android.media.AudioManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.kenza.callsim.BuildConfig
+import com.kenza.callsim.config.ConfigRepository
 import com.kenza.callsim.voice.ConversationalAiClient
 import com.kenza.callsim.voice.MicRecorder
 import com.kenza.callsim.voice.PcmPlayer
@@ -19,10 +19,12 @@ import kotlinx.coroutines.launch
 
 class CallViewModel(app: Application) : AndroidViewModel(app) {
 
+    private val config = ConfigRepository(app)
+
     private val _state = MutableStateFlow(
         CallUiState(
-            contactName = BuildConfig.CONTACT_NAME,
-            isConfigured = ConversationalAiClient.isConfigured()
+            contactName = config.contactName,
+            isConfigured = config.isConfigured
         )
     )
     val state: StateFlow<CallUiState> = _state.asStateFlow()
@@ -69,7 +71,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun beginConnecting() {
         _state.update { it.copy(phase = CallPhase.CONNECTING) }
-        if (!ConversationalAiClient.isConfigured()) {
+        if (!config.isConfigured) {
             // Pure UI demo — show the live call screen without needing the mic.
             onSessionActive(demo = true)
         } else {
@@ -114,7 +116,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Live voice session --------------------------------------------------
 
     private fun startVoiceSession() {
-        if (!ConversationalAiClient.isConfigured()) {
+        if (!config.isConfigured) {
             // Still allow the UI to "connect" in demo mode so the call screen works.
             onSessionActive(demo = true)
             return
@@ -123,7 +125,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         configureAudioRouting()
         player = PcmPlayer().also { it.start() }
 
-        val ai = ConversationalAiClient(listener = object : ConversationalAiClient.Listener {
+        val ai = ConversationalAiClient(
+            agentId = config.agentId,
+            apiKey = config.apiKey,
+            listener = object : ConversationalAiClient.Listener {
             override fun onConnected() = onSessionActive(demo = false)
             override fun onAgentAudio(pcm: ByteArray) {
                 player?.write(pcm)
@@ -242,6 +247,25 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         player?.stop(); player = null
         restoreAudioRouting()
     }
+
+    // ---- Settings / consent --------------------------------------------------
+
+    fun currentSettings(): Triple<String, String, String> =
+        Triple(config.agentId, config.apiKey, config.contactName)
+
+    fun saveSettings(agentId: String, apiKey: String, contactName: String) {
+        config.agentId = agentId
+        config.apiKey = apiKey
+        config.contactName = contactName
+        _state.update {
+            it.copy(contactName = config.contactName, isConfigured = config.isConfigured)
+        }
+    }
+
+    fun voiceId(): String = config.voiceId
+
+    fun isConsentAccepted(): Boolean = config.consentAccepted
+    fun acceptConsent() { config.consentAccepted = true }
 
     private fun startTimer() {
         timerJob?.cancel()

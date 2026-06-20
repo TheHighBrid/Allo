@@ -12,3 +12,9 @@ app/build/
 
 # Built APKs / outputs
 *.apk
+*.aab
+
+# Signing — NEVER commit these
+keystore.properties
+*.jks
+*.keystore

@@ -19,9 +19,9 @@ import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -132,7 +132,7 @@ private fun ControlGrid(
             ControlItem(label = "keypad", icon = Icons.Filled.Dialpad, onClick = onToggleKeypad)
             ControlItem(
                 label = "speaker",
-                icon = Icons.Filled.VolumeUp,
+                icon = Icons.AutoMirrored.Filled.VolumeUp,
                 active = state.isSpeakerOn,
                 onClick = onToggleSpeaker
             )

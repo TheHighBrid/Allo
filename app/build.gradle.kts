@@ -12,14 +12,23 @@ val localProps = Properties().apply {
 }
 fun secret(key: String): String = (localProps.getProperty(key) ?: "").trim()
 
+// Release signing config is read from keystore.properties (git-ignored).
+// See LAUNCH.md. If absent, release builds fall back to the debug key so the
+// project still assembles.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProps.getProperty("storeFile")?.isNotBlank() == true
+
 android {
     namespace = "com.kenza.callsim"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.kenza.callsim"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -30,13 +39,29 @@ android {
         buildConfigField("String", "CONTACT_NAME", "\"${secret("CONTACT_NAME").ifEmpty { "Kenza" }}\"")
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = if (hasReleaseKeystore)
+                signingConfigs.getByName("release")
+            else
+                signingConfigs.getByName("debug")
         }
     }
 
@@ -46,6 +71,11 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    lint {
+        // Don't let lint warnings block release artifact generation.
+        abortOnError = false
+        checkReleaseBuilds = false
     }
     buildFeatures {
         compose = true

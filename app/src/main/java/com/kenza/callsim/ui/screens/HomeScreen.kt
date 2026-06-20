@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.PhoneCallback
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +43,7 @@ fun HomeScreen(
     onDelete: () -> Unit,
     onCall: () -> Unit,
     onSimulateIncoming: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -51,7 +53,16 @@ fun HomeScreen(
             .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(64.dp))
+        Spacer(Modifier.height(48.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Icon(
+                Icons.Filled.Settings,
+                contentDescription = "Settings",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp).clickable(onClick = onOpenSettings)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
 
         // Contact name or the number being typed.
         Box(
