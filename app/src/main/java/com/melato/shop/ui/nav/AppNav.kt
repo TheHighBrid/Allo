@@ -12,7 +12,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.melato.shop.ui.components.MelatoBottomBar
 import com.melato.shop.ui.screens.*
-import com.melato.shop.ui.theme.Surface1
+import com.melato.shop.ui.theme.NearBlack
 import com.melato.shop.vm.ShopViewModel
 
 @Composable
@@ -20,19 +20,18 @@ fun AppNav() {
     val navController = rememberNavController()
     val vm: ShopViewModel = viewModel()
     val cart by vm.cart.collectAsState()
-    val cartCount = vm.cartCount()
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
 
     val bottomBarRoutes = setOf(Screen.Home.route, Screen.Shop.route, Screen.Cart.route, Screen.Profile.route)
     val showBottomBar = currentRoute in bottomBarRoutes
 
     Scaffold(
-        containerColor = com.melato.shop.ui.theme.NearBlack,
+        containerColor = NearBlack,
         bottomBar = {
             if (showBottomBar) {
                 MelatoBottomBar(
                     currentRoute = currentRoute,
-                    cartCount = cartCount,
+                    cartCount = vm.cartCount(),
                     onNavigate = { screen ->
                         navController.navigate(screen.route) {
                             popUpTo(Screen.Home.route) { saveState = true }
@@ -58,10 +57,16 @@ fun AppNav() {
             }
             composable(Screen.Home.route) {
                 HomeScreen(
-                    cartCount = cartCount,
+                    cartCount = vm.cartCount(),
                     onProductClick = { id -> navController.navigate(Screen.ProductDetail.route(id)) },
                     onCartClick = { navController.navigate(Screen.Cart.route) },
                     onShopClick = {
+                        navController.navigate(Screen.Shop.route) {
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                        }
+                    },
+                    onCategoryClick = { catId ->
                         navController.navigate(Screen.Shop.route) {
                             popUpTo(Screen.Home.route) { saveState = true }
                             launchSingleTop = true
@@ -70,9 +75,7 @@ fun AppNav() {
                 )
             }
             composable(Screen.Shop.route) {
-                ShopScreen(
-                    onProductClick = { id -> navController.navigate(Screen.ProductDetail.route(id)) }
-                )
+                ShopScreen(onProductClick = { id -> navController.navigate(Screen.ProductDetail.route(id)) })
             }
             composable(Screen.ProductDetail.route) { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId") ?: return@composable
@@ -92,7 +95,10 @@ fun AppNav() {
                 )
             }
             composable(Screen.Profile.route) {
-                ProfileScreen()
+                ProfileScreen(onFaqClick = { navController.navigate(Screen.Faq.route) })
+            }
+            composable(Screen.Faq.route) {
+                FaqScreen(onBack = { navController.popBackStack() })
             }
         }
     }
