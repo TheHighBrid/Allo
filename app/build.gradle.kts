@@ -20,20 +20,42 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         buildConfigField("String", "SHOPIFY_STORE_DOMAIN", "\"${secret("SHOPIFY_STORE_DOMAIN").ifEmpty { "melato.ca" }}\"")
         buildConfigField("String", "SHOPIFY_STOREFRONT_TOKEN", "\"${secret("SHOPIFY_STOREFRONT_TOKEN")}\"")
     }
 
+    signingConfigs {
+        create("release") {
+            val ksPath = secret("MELATO_KEYSTORE_PATH")
+            storeFile = if (ksPath.isNotEmpty()) rootProject.file(ksPath) else null
+            storePassword = secret("MELATO_KEYSTORE_PASSWORD")
+            keyAlias = secret("MELATO_KEY_ALIAS")
+            keyPassword = secret("MELATO_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+    }
+
+    bundle {
+        language { enableSplit = true }
+        density  { enableSplit = true }
+        abi      { enableSplit = true }
     }
 
     compileOptions {

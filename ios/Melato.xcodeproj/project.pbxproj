@@ -1,0 +1,439 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		9DD80F9A0B1C2D3E4F5A6B7C /* MelatoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DDE0F1A2B3C4D5E6F7A8B9C /* MelatoApp.swift */; };
+		AEE91FAB0C1D2E3F4A5B6C7D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00B3C4D5E6F7A8B9C0D1E2F /* Models.swift */; };
+		BFF02ABC1D2E3F4A5B6C7D8E /* ShopifyRepo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11C4D5E6F7A8B9C0D1E2F3A /* ShopifyRepo.swift */; };
+		C0013BCD2E3F4A5B6C7D8E9F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E22D5E6F7A8B9C0D1E2F3A4B /* Theme.swift */; };
+		D1124CDE3F4A5B6C7D8E9F0A /* CartViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33E6F7A8B9C0D1E2F3A4B5C /* CartViewModel.swift */; };
+		E2235DEF4A5B6C7D8E9F0A1B /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 044F7A8B9C0D1E2F3A4B5C6D /* AppNavigation.swift */; };
+		F3346EFA5B6C7D8E9F0A1B2C /* SplashView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15508B9C0D1E2F3A4B5C6D7E /* SplashView.swift */; };
+		04457FAB6C7D8E9F0A1B2C3D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266192B3C4D5E6F7A8B9C0D1 /* HomeView.swift */; };
+		155680BC7D8E9F0A1B2C3D4E /* ShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3772A3C4D5E6F7A8B9C0D1E2 /* ShopView.swift */; };
+		266791CD8E9F0A1B2C3D4E5F /* ProductDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4883B4D5E6F7A8B9C0D1E2F3 /* ProductDetailView.swift */; };
+		3778A2DE9F0A1B2C3D4E5F6A /* CartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5994C5E6F7A8B9C0D1E2F3A4 /* CartView.swift */; };
+		4889B3EF0A1B2C3D4E5F6A7B /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA5D6F7A8B9C0D1E2F3A4B5 /* ProfileView.swift */; };
+		599AC4FA1B2C3D4E5F6A7B8C /* FaqView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB6E7A8B9C0D1E2F3A4B5C6 /* FaqView.swift */; };
+		6AABD50B2C3D4E5F6A7B8C9D /* ProductCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CC7F8B9C0D1E2F3A4B5C6D7 /* ProductCard.swift */; };
+		7BBCE61C3D4E5F6A7B8C9D0E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BFFA2B3C4D5E6F7A8B9C0D1E /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		9DDE0F1A2B3C4D5E6F7A8B9C /* MelatoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MelatoApp.swift; sourceTree = "<group>"; };
+		AEEF1A2B3C4D5E6F7A8B9C0D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BFFA2B3C4D5E6F7A8B9C0D1E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C00B3C4D5E6F7A8B9C0D1E2F /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		D11C4D5E6F7A8B9C0D1E2F3A /* ShopifyRepo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopifyRepo.swift; sourceTree = "<group>"; };
+		E22D5E6F7A8B9C0D1E2F3A4B /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		F33E6F7A8B9C0D1E2F3A4B5C /* CartViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartViewModel.swift; sourceTree = "<group>"; };
+		044F7A8B9C0D1E2F3A4B5C6D /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
+		15508B9C0D1E2F3A4B5C6D7E /* SplashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashView.swift; sourceTree = "<group>"; };
+		266192B3C4D5E6F7A8B9C0D1 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		3772A3C4D5E6F7A8B9C0D1E2 /* ShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopView.swift; sourceTree = "<group>"; };
+		4883B4D5E6F7A8B9C0D1E2F3 /* ProductDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductDetailView.swift; sourceTree = "<group>"; };
+		5994C5E6F7A8B9C0D1E2F3A4 /* CartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CartView.swift; sourceTree = "<group>"; };
+		6AA5D6F7A8B9C0D1E2F3A4B5 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		7BB6E7A8B9C0D1E2F3A4B5C6 /* FaqView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaqView.swift; sourceTree = "<group>"; };
+		8CC7F8B9C0D1E2F3A4B5C6D7 /* ProductCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductCard.swift; sourceTree = "<group>"; };
+		6180000000000000000000AB /* Melato.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Melato.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F3A4B5C6D7E8F9A0B1C2D3E4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A1B2C3D4E5F6A7B8C9D0E1F2 = {
+			isa = PBXGroup;
+			children = (
+				04AB1C2D3E4F5A6B7C8D9E0F /* Melato */,
+				F2E1D0C9B8A7F6E5D4C3B2A1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F2E1D0C9B8A7F6E5D4C3B2A1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6180000000000000000000AB /* Melato.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		04AB1C2D3E4F5A6B7C8D9E0F /* Melato */ = {
+			isa = PBXGroup;
+			children = (
+				9DDE0F1A2B3C4D5E6F7A8B9C /* MelatoApp.swift */,
+				AEEF1A2B3C4D5E6F7A8B9C0D /* Info.plist */,
+				BFFA2B3C4D5E6F7A8B9C0D1E /* Assets.xcassets */,
+				15BC2D3E4F5A6B7C8D9E0F1A /* Sources */,
+			);
+			path = Melato;
+			sourceTree = "<group>";
+		};
+		15BC2D3E4F5A6B7C8D9E0F1A /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				26CD3E4F5A6B7C8D9E0F1A2B /* Models */,
+				37DE4F5A6B7C8D9E0F1A2B3C /* Theme */,
+				48EF5A6B7C8D9E0F1A2B3C4D /* ViewModels */,
+				59FA6B7C8D9E0F1A2B3C4D5E /* Navigation */,
+				6AAB7C8D9E0F1A2B3C4D5E6F /* Views */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		26CD3E4F5A6B7C8D9E0F1A2B /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				C00B3C4D5E6F7A8B9C0D1E2F /* Models.swift */,
+				D11C4D5E6F7A8B9C0D1E2F3A /* ShopifyRepo.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		37DE4F5A6B7C8D9E0F1A2B3C /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				E22D5E6F7A8B9C0D1E2F3A4B /* Theme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		48EF5A6B7C8D9E0F1A2B3C4D /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				F33E6F7A8B9C0D1E2F3A4B5C /* CartViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		59FA6B7C8D9E0F1A2B3C4D5E /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				044F7A8B9C0D1E2F3A4B5C6D /* AppNavigation.swift */,
+			);
+			path = Navigation;
+			sourceTree = "<group>";
+		};
+		6AAB7C8D9E0F1A2B3C4D5E6F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				7BBC8D9E0F1A2B3C4D5E6F7A /* Screens */,
+				8CCD9E0F1A2B3C4D5E6F7A8B /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		7BBC8D9E0F1A2B3C4D5E6F7A /* Screens */ = {
+			isa = PBXGroup;
+			children = (
+				15508B9C0D1E2F3A4B5C6D7E /* SplashView.swift */,
+				266192B3C4D5E6F7A8B9C0D1 /* HomeView.swift */,
+				3772A3C4D5E6F7A8B9C0D1E2 /* ShopView.swift */,
+				4883B4D5E6F7A8B9C0D1E2F3 /* ProductDetailView.swift */,
+				5994C5E6F7A8B9C0D1E2F3A4 /* CartView.swift */,
+				6AA5D6F7A8B9C0D1E2F3A4B5 /* ProfileView.swift */,
+				7BB6E7A8B9C0D1E2F3A4B5C6 /* FaqView.swift */,
+			);
+			path = Screens;
+			sourceTree = "<group>";
+		};
+		8CCD9E0F1A2B3C4D5E6F7A8B /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				8CC7F8B9C0D1E2F3A4B5C6D7 /* ProductCard.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C0D1E2F3A4B5C6D7E8F9A0B1 /* Melato */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D5E6F7A8B9C0D1E2F3A4B5C6 /* Build configuration list for PBXNativeTarget "Melato" */;
+			buildPhases = (
+				D1E2F3A4B5C6D7E8F9A0B1C2 /* Sources */,
+				F3A4B5C6D7E8F9A0B1C2D3E4 /* Frameworks */,
+				E2F3A4B5C6D7E8F9A0B1C2D3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Melato;
+			productName = Melato;
+			productReference = 6180000000000000000000AB /* Melato.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B3A4D5E6F7A8B9C0D1E2F3A4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					C0D1E2F3A4B5C6D7E8F9A0B1 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = C4D5E6F7A8B9C0D1E2F3A4B5 /* Build configuration list for PBXProject "Melato" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A1B2C3D4E5F6A7B8C9D0E1F2;
+			productRefGroup = F2E1D0C9B8A7F6E5D4C3B2A1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C0D1E2F3A4B5C6D7E8F9A0B1 /* Melato */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E2F3A4B5C6D7E8F9A0B1C2D3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7BBCE61C3D4E5F6A7B8C9D0E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D1E2F3A4B5C6D7E8F9A0B1C2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9DD80F9A0B1C2D3E4F5A6B7C /* MelatoApp.swift in Sources */,
+				AEE91FAB0C1D2E3F4A5B6C7D /* Models.swift in Sources */,
+				BFF02ABC1D2E3F4A5B6C7D8E /* ShopifyRepo.swift in Sources */,
+				C0013BCD2E3F4A5B6C7D8E9F /* Theme.swift in Sources */,
+				D1124CDE3F4A5B6C7D8E9F0A /* CartViewModel.swift in Sources */,
+				E2235DEF4A5B6C7D8E9F0A1B /* AppNavigation.swift in Sources */,
+				F3346EFA5B6C7D8E9F0A1B2C /* SplashView.swift in Sources */,
+				04457FAB6C7D8E9F0A1B2C3D /* HomeView.swift in Sources */,
+				155680BC7D8E9F0A1B2C3D4E /* ShopView.swift in Sources */,
+				266791CD8E9F0A1B2C3D4E5F /* ProductDetailView.swift in Sources */,
+				3778A2DE9F0A1B2C3D4E5F6A /* CartView.swift in Sources */,
+				4889B3EF0A1B2C3D4E5F6A7B /* ProfileView.swift in Sources */,
+				599AC4FA1B2C3D4E5F6A7B8C /* FaqView.swift in Sources */,
+				6AABD50B2C3D4E5F6A7B8C9D /* ProductCard.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		E6F7A8B9C0D1E2F3A4B5C6D7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		F7A8B9C0D1E2F3A4B5C6D7E8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_CYCLE = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A8B9C0D1E2F3A4B5C6D7E8F9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Melato/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.melato.shop;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B9C0D1E2F3A4B5C6D7E8F9A0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Melato/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.melato.shop;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C4D5E6F7A8B9C0D1E2F3A4B5 /* Build configuration list for PBXProject "Melato" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E6F7A8B9C0D1E2F3A4B5C6D7 /* Debug */,
+				F7A8B9C0D1E2F3A4B5C6D7E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D5E6F7A8B9C0D1E2F3A4B5C6 /* Build configuration list for PBXNativeTarget "Melato" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8B9C0D1E2F3A4B5C6D7E8F9 /* Debug */,
+				B9C0D1E2F3A4B5C6D7E8F9A0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B3A4D5E6F7A8B9C0D1E2F3A4 /* Project object */;
+}
