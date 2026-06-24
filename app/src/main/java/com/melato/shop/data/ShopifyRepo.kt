@@ -5,6 +5,8 @@ import com.melato.shop.data.model.FaqItem
 import com.melato.shop.data.model.PopupEvent
 import com.melato.shop.data.model.Product
 
+private const val CDN = "https://cdn.shopify.com/s/files/1/0809/3358/5151/files/"
+
 object ShopifyRepo {
 
     val categories = listOf(
@@ -36,7 +38,7 @@ object ShopifyRepo {
             isFeatured = true,
             isNew = false,
             tags = listOf("Bestseller"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-ojos-velour-track-jacket.jpg",
+            imageUrl = "${CDN}77963_672f7575-e89e-4633-84c4-1a9113e32c24.jpg",
             accent = 0xFFB44040
         ),
         Product(
@@ -46,10 +48,10 @@ object ShopifyRepo {
             price = 69.99,
             description = "Matching track pant to the OJOS Velour Track Jacket. Colorblock velour with elastic waist, tapered leg, and branded details. Limited drop — full set available.",
             category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Ojos"),
+            sizes = listOf("One Size"),
+            colors = listOf("Rose Gold"),
             tags = listOf("Pair with jacket"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-ojos-velour-track-pants.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_b20f8220-a544-4191-9306-ecda6711ceea.png",
             accent = 0xFFB44040
         ),
         Product(
@@ -63,8 +65,8 @@ object ShopifyRepo {
             colors = listOf("Pearl"),
             isFeatured = true,
             isNew = true,
-            tags = listOf("New Drop"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-ovum-satin-track-jacket-pearl.jpg",
+            tags = listOf("New Drop", "OVUM"),
+            imageUrl = "${CDN}melato-ovum-satin-track-jacket-pearl.jpg",
             accent = 0xFFD4C9A8
         ),
         Product(
@@ -72,14 +74,29 @@ object ShopifyRepo {
             handle = "ovum-satin-track-pant-pearl",
             title = "OVUM Satin Track Pant — Pearl",
             price = 149.99,
-            description = "The matching satin track pant to the OVUM Jacket. Pearl finish, elastic waistband with adjustable drawstring, tapered leg. Full set: $309.98 CAD.",
+            description = "The matching satin track pant to the OVUM Jacket. Pearl finish, elastic waistband with adjustable drawstring, tapered leg. Full set: \$309.98 CAD.",
             category = "tracksuits",
             sizes = listOf("XS", "S", "M", "L", "XL"),
             colors = listOf("Pearl"),
             isNew = true,
-            tags = listOf("New Drop"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-ovum-satin-track-pant-pearl.jpg",
+            tags = listOf("New Drop", "OVUM"),
+            imageUrl = "${CDN}melato-ovum-satin-track-pant-pearl.jpg",
             accent = 0xFFD4C9A8
+        ),
+        Product(
+            id = "ovum-velvet-jacket",
+            handle = "ovum-velvet-track-jacket-forest-cream",
+            title = "OVUM Velvet Track Jacket — Forest / Cream",
+            price = 189.99,
+            description = "Velvet construction in a forest and cream colorblock. Part of the OVUM capsule — The Metamorphosis Cycle. Limited release, unisex fit.",
+            category = "tracksuits",
+            sizes = listOf("XS", "S", "M", "L", "XL"),
+            colors = listOf("Forest Cream"),
+            isFeatured = true,
+            isNew = true,
+            tags = listOf("OVUM", "Limited"),
+            imageUrl = "${CDN}melato-ovum-forest-cream-velvet-tracksuit.jpg",
+            accent = 0xFF2D4A2D
         ),
         Product(
             id = "divididos-jacket",
@@ -88,11 +105,11 @@ object ShopifyRepo {
             price = 89.99,
             description = "Heritage-inspired velour construction with a distinctive divided colorblock layout. Full front zip, structured collar, branded embroidery. Pairs with the Divididos Track Pant for the full set.",
             category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L", "XL"),
             colors = listOf("Divididos"),
             isFeatured = true,
             tags = listOf("Core"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-divididos-velour-track-jacket.jpg",
+            imageUrl = "${CDN}melato-divididos-velour-track-jacket-alternate.png",
             accent = 0xFF5E4B8B
         ),
         Product(
@@ -102,9 +119,9 @@ object ShopifyRepo {
             price = 59.99,
             description = "Matching track pant to the Divididos Velour Track Jacket. Heritage colorblock design, elastic waist, side pockets.",
             category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L", "XL"),
             colors = listOf("Divididos"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-divididos-velour-track-pant.jpg",
+            imageUrl = "${CDN}melato-divididos-velour-track-pant-front.png",
             accent = 0xFF5E4B8B
         ),
         Product(
@@ -118,7 +135,7 @@ object ShopifyRepo {
             colors = listOf("Conquista"),
             isFeatured = true,
             tags = listOf("Bold"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-conquista-velour-track-jacket.jpg",
+            imageUrl = "${CDN}melato-conquista-velour-track-jacket-alternate.png",
             accent = 0xFF2A9D8F
         ),
         Product(
@@ -130,7 +147,7 @@ object ShopifyRepo {
             category = "tracksuits",
             sizes = listOf("S", "M", "L", "XL"),
             colors = listOf("Conquista"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-conquista-velour-track-pant.jpg",
+            imageUrl = "${CDN}melato-conquista-velour-track-pant-front.png",
             accent = 0xFF2A9D8F
         ),
         Product(
@@ -140,9 +157,9 @@ object ShopifyRepo {
             price = 89.99,
             description = "Grey blue geometric colorblock velour jacket with structured silhouette. A quieter expression of the Melato tracksuit identity — still intentional, still limited.",
             category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L", "XL"),
             colors = listOf("Chū"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-chu-velour-track-jacket.jpg",
+            imageUrl = "${CDN}melato-chu-velour-track-jacket-alternate.png",
             accent = 0xFF6B8CAE
         ),
         Product(
@@ -152,34 +169,10 @@ object ShopifyRepo {
             price = 59.99,
             description = "Matching track pant to the Chū Velour Jacket. Grey blue geometric colorblock, elastic waist, tapered cut.",
             category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L", "XL"),
             colors = listOf("Chū"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-chu-velour-track-pant.jpg",
+            imageUrl = "${CDN}melato-chu-velour-track-pant-front.png",
             accent = 0xFF6B8CAE
-        ),
-        Product(
-            id = "passion-jacket",
-            handle = "passion-fruit-velour-track-jacket",
-            title = "Passion Fruit Velour Track Jacket",
-            price = 89.99,
-            description = "Earth tone, warm colorblock velour jacket. One of the more expressive pieces in the tracksuit lineup — worn alone or as a full set.",
-            category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Passion Fruit"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-passion-fruit-velour-track-jacket.jpg",
-            accent = 0xFFE07B39
-        ),
-        Product(
-            id = "passion-pant",
-            handle = "passion-fruit-velour-track-pant",
-            title = "Passion Fruit Velour Track Pant",
-            price = 59.99,
-            description = "Matching pant to the Passion Fruit Velour Track Jacket. Earth tone colorblock, relaxed athletic fit.",
-            category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Passion Fruit"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-passion-fruit-velour-track-pant.jpg",
-            accent = 0xFFE07B39
         ),
         Product(
             id = "midas-jacket",
@@ -192,7 +185,7 @@ object ShopifyRepo {
             colors = listOf("Midas"),
             isFeatured = true,
             tags = listOf("Premium"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-midas-runner-track-jacket.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_7986447b-7784-4dec-9b07-842914a3a3df.png",
             accent = 0xFFC9A84C
         ),
         Product(
@@ -204,32 +197,8 @@ object ShopifyRepo {
             category = "tracksuits",
             sizes = listOf("XS", "S", "M", "L", "XL"),
             colors = listOf("Midas"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-midas-runner-track-pants.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_7834f71d-51bd-4a28-b1d8-cd33929d1fce.png",
             accent = 0xFFC9A84C
-        ),
-        Product(
-            id = "reliance-jacket",
-            handle = "reliance-bamboo-track-jacket",
-            title = "Reliance Bamboo Track Jacket",
-            price = 99.99,
-            description = "Bamboo-blend track jacket in black salmon colorblock. Softer hand than velour — worn close or relaxed. The Reliance set sits between performance and leisure.",
-            category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Black Salmon"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-reliance-bamboo-track-jacket.jpg",
-            accent = 0xFFE8A598
-        ),
-        Product(
-            id = "reliance-pant",
-            handle = "reliance-bamboo-track-pant",
-            title = "Reliance Bamboo Track Pant",
-            price = 59.99,
-            description = "Bamboo-blend matching track pant. Black salmon colorblock, elastic waist, tapered leg.",
-            category = "tracksuits",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Black Salmon"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-reliance-bamboo-track-pant.jpg",
-            accent = 0xFFE8A598
         ),
 
         // ── DENIM ───────────────────────────────────────────────────────────────
@@ -240,9 +209,9 @@ object ShopifyRepo {
             price = 74.99,
             description = "A tailored flare silhouette in deep noir. Cut with precision — from the office to the after. One of the most versatile pieces in the collection.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Noir"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-9-to-noir-tailored-flare-pant.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_2f725dc5-48e3-4781-bcaa-1763225b353e.jpg",
             accent = 0xFF1A1A2E
         ),
         Product(
@@ -252,10 +221,10 @@ object ShopifyRepo {
             price = 79.99,
             description = "Distressed flare denim with a vintage athletic soul. The Hendrix sits at the intersection of seventies denim culture and modern street — worn with anything.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("28", "30", "32", "34", "36"),
             colors = listOf("Hendrix"),
             isFeatured = true,
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-hendrix-distressed-flare-jean.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_593dec29-b17f-4f96-abfd-acbf64de4190.png",
             accent = 0xFF3D5A80
         ),
         Product(
@@ -265,9 +234,9 @@ object ShopifyRepo {
             price = 139.99,
             description = "Slim cut distressed denim in a rich berry wash. A premium take on the classic slim — the distressing is intentional, not decorative.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("28", "30", "32", "34", "36"),
             colors = listOf("Berry"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-berry-distressed-slim-jean.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_c33e3385-56f5-4150-b1dd-57c90db51f1b.png",
             accent = 0xFF6B2D5E
         ),
         Product(
@@ -277,9 +246,9 @@ object ShopifyRepo {
             price = 89.99,
             description = "Raw-edge flare denim with earth-toned washes and heavy character. The Dirt Rich is built for those who wear their clothes, not just own them.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("24", "26", "28", "30", "32"),
             colors = listOf("Dirt Rich"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-dirt-rich-denim-flare-jean.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_f57c49d5-d437-4762-9e2a-f6a0dfb03533.jpg",
             accent = 0xFF7B5E3C
         ),
         Product(
@@ -289,9 +258,9 @@ object ShopifyRepo {
             price = 85.99,
             description = "Zip-detail flare denim for the late-night crowd. The Nuit Blanche is a statement piece — wear it when the night calls for something more.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("28", "30", "32", "34", "38"),
             colors = listOf("Nuit Blanche"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-nuit-blanche-zip-flare-jean.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_1a0b9127-132e-4722-a6ee-fbe2a349d6c4.png",
             accent = 0xFF2C3E50
         ),
         Product(
@@ -301,22 +270,24 @@ object ShopifyRepo {
             price = 89.99,
             description = "A pale, off-white flare denim that reads clean and deliberate. The Off-White Lie is effortless dressed up or down.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("24", "26", "28", "30", "32"),
             colors = listOf("Off-White"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-off-white-lie-flare-jean.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_7aba15e3-b953-40b3-ba8d-73a7a596e973.jpg",
             accent = 0xFFE8E4D9
         ),
         Product(
-            id = "rosetta-jean",
-            handle = "rosetta-distressed-flare-jean",
-            title = "Rosetta Distressed Flare Jean",
+            id = "noir-traffic",
+            handle = "noir-traffic-wide-jean",
+            title = "Noir Traffic Wide Jean",
             price = 79.99,
-            description = "A feminine-leaning distressed flare with warm undertones. The Rosetta pairs easily across the collection — a dependable piece in any rotation.",
+            description = "A wide-leg silhouette in noir with graphic detail. Relaxed fit, unisex sizing. The Noir Traffic is the daily denim for those who move differently.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Rosetta"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-rosetta-distressed-flare-jean.jpg",
-            accent = 0xFFB07560
+            sizes = listOf("S", "M", "L", "XL", "2XL"),
+            colors = listOf("Black"),
+            isNew = true,
+            tags = listOf("New"),
+            imageUrl = "${CDN}rn-image_picker_lib_temp_9e74971b-f52b-440a-adc9-c1e8301fba21.png",
+            accent = 0xFF1A1A1A
         ),
         Product(
             id = "casanegra",
@@ -325,11 +296,11 @@ object ShopifyRepo {
             price = 159.99,
             description = "Premium leather-look flare zip pants in deep black. The CasaNegra is a full presence piece — structured silhouette, bold finish, built to own a room.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("28", "29", "30", "32", "34"),
             colors = listOf("Nero"),
             isFeatured = true,
             tags = listOf("Premium"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-casanegra-leather-flare-zip-pants.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_9db4135b-f026-4caa-a943-a03e7836d978.png",
             accent = 0xFF1C1C1C
         ),
         Product(
@@ -337,11 +308,11 @@ object ShopifyRepo {
             handle = "kech-leather-flare-zip-pants",
             title = "Kech Leather Flare Zip Pants",
             price = 159.99,
-            description = "Leather-look flare zip pants in a warmer tonal palette. The Kech offers the same premium construction as the CasaNegra with a different visual language.",
+            description = "Leather-look flare zip pants in a warmer tonal palette — Casablanca colorway. The Kech offers the same premium construction as the CasaNegra with a different visual language.",
             category = "denim",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Kech"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-kech-leather-flare-zip-pants.jpg",
+            sizes = listOf("28", "29", "30", "32", "34"),
+            colors = listOf("Casablanca"),
+            imageUrl = "${CDN}rn-image_picker_lib_temp_b005d4b3-c76c-4979-b81c-6dfd0bfddaec.png",
             accent = 0xFF8B6914
         ),
 
@@ -356,7 +327,7 @@ object ShopifyRepo {
             sizes = listOf("XS", "S", "M", "L", "XL"),
             colors = listOf("Barolo"),
             isFeatured = true,
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-barolo-tweed-zip-overshirt.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_c959cd8c-ff24-4b2b-a1fa-7b5ae868ac39.png",
             accent = 0xFF722F37
         ),
         Product(
@@ -367,8 +338,8 @@ object ShopifyRepo {
             description = "A clean, relaxed button-up in a quiet palette. The Bluefin is the everyday reach — effortless and considered without demanding attention.",
             category = "tops",
             sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Bluefin"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-bluefin-relaxed-shirt.jpg",
+            colors = listOf("Bluefin Stripe"),
+            imageUrl = "${CDN}rn-image_picker_lib_temp_598395a9-163e-4f2d-b31d-e5ed6ad33f23.png",
             accent = 0xFF4A7FA5
         ),
         Product(
@@ -383,7 +354,7 @@ object ShopifyRepo {
             isFeatured = true,
             isNew = true,
             tags = listOf("New"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-moula-caramel-cable-knit-polo.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_5c622955-3d2e-47b6-9d63-cd0c09c8b715.jpg",
             accent = 0xFFC8903A
         ),
         Product(
@@ -393,48 +364,66 @@ object ShopifyRepo {
             price = 84.99,
             description = "A retro-paneled jacket in olive tones with a structured athletic cut. The Olive Affair is a utility piece built for daily movement.",
             category = "tops",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Olive"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-olive-affair-retro-panel-jacket.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_8efde421-c08e-4c27-840e-dc3073369bd9.png",
             accent = 0xFF556B2F
         ),
         Product(
-            id = "taupe-secret",
-            handle = "taupe-secret-retro-panel-jacket",
-            title = "Taupe Secret Retro Panel Jacket",
-            price = 84.99,
-            description = "Retro panel jacket in taupe — a quieter take on the same athletic silhouette as the Olive Affair. Pairs across the denim and tracksuit collections.",
+            id = "mint-tee",
+            handle = "mint-condition-panel-tee",
+            title = "Mint Condition Panel Tee",
+            price = 35.99,
+            description = "An oversized panel tee in mint green and white snow colorways. Relaxed unisex fit — pairs with the Mint Condition Relaxed Pant for the full set.",
             category = "tops",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Taupe"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-taupe-secret-retro-panel-jacket.jpg",
-            accent = 0xFFB5A899
+            sizes = listOf("M", "L", "XL"),
+            colors = listOf("Mint Green", "White Snow"),
+            isNew = true,
+            tags = listOf("New", "Matching Set"),
+            imageUrl = "${CDN}rn-image_picker_lib_temp_8ea818d0-fc15-4f00-9b8d-5eaad4901bd8.png",
+            accent = 0xFF4CAF7A
         ),
         Product(
-            id = "smoke-signal",
-            handle = "smoke-signal-spray-tee",
-            title = "Smoke Signal Spray Tee",
-            price = 74.99,
-            description = "A spray-effect graphic tee with a considered fade. The Smoke Signal is the foundational layer — wear it under a jacket, over a bodysuit, or on its own.",
+            id = "mint-pant",
+            handle = "mint-condition-relaxed-pant",
+            title = "Mint Condition Relaxed Pant",
+            price = 59.99,
+            description = "A relaxed fit trouser in light green. Designed to match the Mint Condition Panel Tee — the easy set for those who move with purpose.",
             category = "tops",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Smoke"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-smoke-signal-spray-tee.jpg",
-            accent = 0xFF696969
+            sizes = listOf("M"),
+            colors = listOf("Light Green"),
+            isNew = true,
+            tags = listOf("New", "Matching Set"),
+            imageUrl = "${CDN}rn-image_picker_lib_temp_3de2f288-9a50-4985-889f-555522584fa3.png",
+            accent = 0xFF5EAD7C
         ),
         Product(
-            id = "taqburni",
-            handle = "taqburni-velour-polo-shirt",
-            title = "Taqburni Velour Polo Shirt",
-            price = 99.99,
-            description = "A velour polo shirt that bridges the gap between the tracksuit line and tailored tops. The Taqburni is a Melato original — textured, intentional, limited.",
+            id = "bon-courage",
+            handle = "bon-courage-blush-jersey-top",
+            title = "Bon Courage Blush Jersey Top",
+            price = 60.99,
+            description = "A blush jersey top with relaxed fit and clean silhouette. The Bon Courage is the easy reach — soft hand, deliberate construction.",
             category = "tops",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Taqburni"),
+            sizes = listOf("M", "L", "XL"),
+            colors = listOf("Blush"),
             isNew = true,
             tags = listOf("New"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-taqburni-velour-polo-shirt.jpg",
-            accent = 0xFF8B0000
+            imageUrl = "${CDN}rn-image_picker_lib_temp_7e4e04f0-cd7d-481e-b01e-a32606699198.png",
+            accent = 0xFFE8B4B8
+        ),
+        Product(
+            id = "ovum-tee",
+            handle = "ovum-shell-crest-tee-pearl",
+            title = "OVUM Shell Crest Tee — Pearl",
+            price = 79.99,
+            description = "An oversized tee with a shell crest detail in pearl. Part of the OVUM capsule — The Metamorphosis Cycle. Unisex fit, limited release.",
+            category = "tops",
+            sizes = listOf("XS", "S", "M", "L", "XL"),
+            colors = listOf("Pearl"),
+            isNew = true,
+            tags = listOf("OVUM", "Limited"),
+            imageUrl = "${CDN}melato-ovum-shell-crest-tee-pearl.jpg",
+            accent = 0xFFD4C9A8
         ),
 
         // ── ACCESSORIES ─────────────────────────────────────────────────────────
@@ -443,11 +432,11 @@ object ShopifyRepo {
             handle = "atlas-dopp-kit",
             title = "Atlas Dopp Kit",
             price = 69.99,
-            description = "A compact, structured travel kit in premium materials. The Atlas Dopp Kit is finished to the same standard as the apparel — carry it with intent.",
+            description = "A compact, structured travel kit in premium coated canvas with monogram detail. The Atlas Dopp Kit is finished to the same standard as the apparel — carry it with intent.",
             category = "accessories",
             sizes = listOf("One Size"),
             colors = listOf("Atlas"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-atlas-dopp-kit.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_b396a57a-a5d3-43b6-be1b-293f78d9d4d3.png",
             accent = 0xFF5C4033
         ),
         Product(
@@ -460,19 +449,76 @@ object ShopifyRepo {
             sizes = listOf("One Size"),
             colors = listOf("Atlas"),
             isFeatured = true,
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-atlas-woven-duffle.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_f65ed62e-dada-4c49-9b8b-223c9fee8064.png",
             accent = 0xFF5C4033
+        ),
+        Product(
+            id = "atlas-messenger",
+            handle = "atlas-smoke-messenger",
+            title = "Atlas Smoke Messenger",
+            price = 179.99,
+            description = "A structured smoke-tone messenger bag in vegan leather. Lock closure, premium hardware, designed for the city and the day in between.",
+            category = "accessories",
+            sizes = listOf("One Size"),
+            colors = listOf("Smoke"),
+            isNew = true,
+            tags = listOf("New"),
+            imageUrl = "",
+            accent = 0xFF4A4A4A
+        ),
+        Product(
+            id = "ovum-duffle",
+            handle = "ovum-ivory-duffle-black-trim",
+            title = "OVUM Ivory Duffle — Black Trim",
+            price = 189.99,
+            description = "Shell duffle in ivory with black trim. Part of the OVUM capsule — The Metamorphosis Cycle. Premium construction, monogram detail, limited release.",
+            category = "accessories",
+            sizes = listOf("One Size"),
+            colors = listOf("Ivory Black"),
+            isFeatured = true,
+            isNew = true,
+            tags = listOf("OVUM", "Limited"),
+            imageUrl = "${CDN}melato-ovum-shell-duffle-ivory-black.jpg",
+            accent = 0xFFEAE0D0
+        ),
+        Product(
+            id = "ovum-crescent",
+            handle = "ovum-patent-crescent-bag-rouge",
+            title = "OVUM Patent Crescent Bag — Rouge",
+            price = 159.99,
+            description = "A patent leather crescent bag in rouge. Bold silhouette, structured form, clean finish. Part of the OVUM capsule — the statement bag in the collection.",
+            category = "accessories",
+            sizes = listOf("One Size"),
+            colors = listOf("Rouge"),
+            isNew = true,
+            tags = listOf("OVUM", "Limited"),
+            imageUrl = "${CDN}melato-ovum-patent-crescent-bag-rouge.jpg",
+            accent = 0xFF8B1A1A
+        ),
+        Product(
+            id = "ovum-barrel",
+            handle = "ovum-pearl-barrel-bag-champagne",
+            title = "OVUM Pearl Barrel Bag — Champagne",
+            price = 159.99,
+            description = "A barrel bag in champagne with monogram detail. Compact and structured — the everyday bag from the OVUM capsule.",
+            category = "accessories",
+            sizes = listOf("One Size"),
+            colors = listOf("Champagne"),
+            isNew = true,
+            tags = listOf("OVUM", "Limited"),
+            imageUrl = "${CDN}melato-ovum-pearl-barrel-bag-champagne-flatlay.jpg",
+            accent = 0xFFD4C080
         ),
         Product(
             id = "emerald-tie",
             handle = "emerald-solstice-tile-geometric-tie",
             title = "Emerald Solstice Tile Geometric Tie",
             price = 79.99,
-            description = "A geometric tile pattern tie in emerald tones. The Emerald Solstice is part of the Melato accessories line — sharp, considered, limited.",
+            description = "A geometric tile pattern tie in emerald tones. The Emerald Solstice is part of the Zellige capsule — sharp, considered, limited.",
             category = "accessories",
             sizes = listOf("One Size"),
             colors = listOf("Emerald"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-emerald-solstice-tile-geometric-tie.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_573e449e-fd4b-4299-b40b-927b8d05542f.jpg",
             accent = 0xFF2D6A4F
         ),
         Product(
@@ -484,44 +530,8 @@ object ShopifyRepo {
             category = "accessories",
             sizes = listOf("One Size"),
             colors = listOf("Knotorious"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-knotorious-monogram-tie.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_5ef14989-eb7d-4cad-ae28-7f3160333e5b.jpg",
             accent = 0xFF1B1B2F
-        ),
-        Product(
-            id = "rosewood-tie",
-            handle = "rosewood-checkerboard-tie",
-            title = "Rosewood Checkerboard Tie",
-            price = 79.99,
-            description = "Checkerboard pattern tie in rosewood tones. Clean geometry, warm colour — a secondary statement that finishes any formal or semi-formal look.",
-            category = "accessories",
-            sizes = listOf("One Size"),
-            colors = listOf("Rosewood"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-rosewood-checkerboard-tie.jpg",
-            accent = 0xFF7D3C3C
-        ),
-        Product(
-            id = "ruby-tie",
-            handle = "ruby-labyrinth-geometric-tie",
-            title = "Ruby Labyrinth Geometric Tie",
-            price = 79.99,
-            description = "A deep ruby geometric labyrinth tie. Bold pattern, refined execution — the Ruby Labyrinth finishes a look or starts a conversation.",
-            category = "accessories",
-            sizes = listOf("One Size"),
-            colors = listOf("Ruby"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-ruby-labyrinth-geometric-tie.jpg",
-            accent = 0xFF8B0000
-        ),
-        Product(
-            id = "sunlit-tie",
-            handle = "sunlit-atrium-geometric-tie",
-            title = "Sunlit Atrium Geometric Tie",
-            price = 79.99,
-            description = "A warm, golden-hour geometric tie in sunlit tones. The Atrium is lighter in palette — a versatile accent that works across the collection.",
-            category = "accessories",
-            sizes = listOf("One Size"),
-            colors = listOf("Sunlit"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-sunlit-atrium-geometric-tie.jpg",
-            accent = 0xFFC9A84C
         ),
         Product(
             id = "ivy-harness",
@@ -532,20 +542,8 @@ object ShopifyRepo {
             category = "accessories",
             sizes = listOf("One Size"),
             colors = listOf("Ivy"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-ivy-trellis-harness-suspenders.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_d7b1a9ee-f657-40d0-ae74-8c04f65d1005.jpg",
             accent = 0xFF3A6351
-        ),
-        Product(
-            id = "salopette",
-            handle = "salopette-de-salo-harness-suspenders",
-            title = "Salopette de Salo Harness Suspenders",
-            price = 79.99,
-            description = "A fashion-forward harness suspender set with architectural construction. The Salopette de Salo is a Melato original — worn as a centrepiece or layering accent.",
-            category = "accessories",
-            sizes = listOf("One Size"),
-            colors = listOf("Salo"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-salopette-de-salo-harness-suspenders.jpg",
-            accent = 0xFF4A4A4A
         ),
 
         // ── EVE'S WARDROBE ───────────────────────────────────────────────────────
@@ -556,12 +554,12 @@ object ShopifyRepo {
             price = 199.99,
             description = "A sheer mesh bodysuit designed for the blue hour — the quiet drama between day and night. Premium construction, intentional coverage, an unapologetic silhouette.",
             category = "eves-wardrobe",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Blue Hour"),
             isFeatured = true,
             isNew = true,
             tags = listOf("Eve's Wardrobe"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-blue-hour-alibi-mesh-bodysuit.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_de1c346b-e085-4fe2-8789-239027b20b34.jpg",
             accent = 0xFF1A3A5C
         ),
         Product(
@@ -571,22 +569,22 @@ object ShopifyRepo {
             price = 199.99,
             description = "Mesh bodysuit with deliberate cut and controlled exposure. The Body Language speaks for itself — wear it loud or quiet, but wear it on purpose.",
             category = "eves-wardrobe",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Body Language"),
+            sizes = listOf("S", "M", "L"),
+            colors = listOf("Cocoa"),
             tags = listOf("Eve's Wardrobe"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-body-language-mesh-bodysuit.jpg",
-            accent = 0xFF2D2D2D
+            imageUrl = "${CDN}melato-body-language-cocoa-mesh-bodysuit-front.jpg",
+            accent = 0xFF5C3D2E
         ),
         Product(
             id = "cognac-skirt",
             handle = "cognac-confession-leather-pencil-skirt",
             title = "Cognac Confession Leather Pencil Skirt",
             price = 130.00,
-            description = "A leather pencil skirt in cognac — precise, bold, and entirely deliberate. Pairs with bodysuits, the Taqburni polo, or anything with presence.",
+            description = "A leather pencil skirt in cognac — precise, bold, and entirely deliberate. Pairs with bodysuits, the Moula polo, or anything with presence.",
             category = "eves-wardrobe",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Cognac"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-cognac-confession-leather-pencil-skirt.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_678fde1f-5e9c-4882-998c-022bfe155574.jpg",
             accent = 0xFF9B5A2A
         ),
         Product(
@@ -596,12 +594,12 @@ object ShopifyRepo {
             price = 319.99,
             description = "The statement piece of Eve's Wardrobe. A lace corset dress in noir with structured boning and deliberate silhouette. Limited production — not a restock piece.",
             category = "eves-wardrobe",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Noir"),
             isFeatured = true,
             isNew = true,
             tags = listOf("Eve's Wardrobe", "Statement"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-noir-alibi-lace-corset-dress.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_90c7e6e3-5499-40e6-8f1f-4ec547f31dd4.jpg",
             accent = 0xFF0D0D0D
         ),
         Product(
@@ -611,9 +609,9 @@ object ShopifyRepo {
             price = 110.00,
             description = "A wrap pencil skirt in noir with a clean, tailored finish. The Noir Memoir is the understated option in Eve's Wardrobe — every bit as intentional.",
             category = "eves-wardrobe",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Noir"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-noir-memoir-wrap-pencil-skirt.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_b1e85891-55d0-49bf-9656-13ccb456b4b4.jpg",
             accent = 0xFF1C1C1C
         ),
         Product(
@@ -623,22 +621,25 @@ object ShopifyRepo {
             price = 119.99,
             description = "A three-piece undergarment set designed for all-day comfort and intentional styling. The Dawn-to-Dusk is a complete layering solution — morning through night.",
             category = "eves-wardrobe",
-            sizes = listOf("XS", "S", "M", "L", "XL"),
+            sizes = listOf("S", "M", "L"),
             colors = listOf("Ivory", "Noir"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-dawn-to-dusk-three-piece-undergarment-set.jpg",
+            imageUrl = "${CDN}rn-image_picker_lib_temp_93d6752e-fc15-4803-af49-22d5a50e92a4.png",
             accent = 0xFFF5ECD7
         ),
         Product(
-            id = "side-note",
-            handle = "side-note-lace-rib-top",
-            title = "Side Note Lace Rib Top",
-            price = 59.99,
-            description = "A lace rib top that layers under everything or stands alone. The Side Note is the entry point to Eve's Wardrobe — subtle, tactile, considered.",
+            id = "ovum-slip-dress",
+            handle = "ovum-noir-lace-slip-dress",
+            title = "OVUM Noir Lace Slip Dress",
+            price = 119.99,
+            description = "A lace slip dress in noir — evening wear from the OVUM capsule. Structured through the bodice, fluid through the fall. Limited release.",
             category = "eves-wardrobe",
             sizes = listOf("XS", "S", "M", "L", "XL"),
-            colors = listOf("Ivory", "Noir"),
-            imageUrl = "https://melato.ca/cdn/shop/files/melato-side-note-lace-rib-top.jpg",
-            accent = 0xFFD4C5B2
+            colors = listOf("Noir"),
+            isFeatured = true,
+            isNew = true,
+            tags = listOf("OVUM", "Limited", "Eve's Wardrobe"),
+            imageUrl = "${CDN}melato-ovum-noir-slip-dress-editorial.jpg",
+            accent = 0xFF1A1A1A
         )
     )
 
