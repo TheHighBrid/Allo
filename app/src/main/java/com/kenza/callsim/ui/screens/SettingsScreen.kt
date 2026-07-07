@@ -23,6 +23,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,6 +58,7 @@ fun SettingsScreen(
     var agentId by remember { mutableStateOf(initial.agentId) }
     var elevenKey by remember { mutableStateOf(initial.elevenApiKey) }
     var backups by remember { mutableStateOf(initial.elevenBackups) }
+    var injectMemory by remember { mutableStateOf(initial.elevenInjectMemory) }
     var contactName by remember { mutableStateOf(initial.contactName) }
     var persona by remember { mutableStateOf(initial.persona) }
 
@@ -138,6 +140,18 @@ fun SettingsScreen(
                 singleLine = false)
             Spacer(Modifier.height(4.dp))
             Text("Voice ID: ${voiceId.ifEmpty { "—" }}", color = IOSColors.SecondaryLabel, fontSize = 12.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Send persona + memory to ElevenLabs", color = Color.White, fontSize = 15.sp)
+                    Text(
+                        "Gives the ElevenLabs voice the same memory & personality. FIRST enable " +
+                            "Security → Overrides → System prompt on your agent, or calls will fail.",
+                        color = IOSColors.SecondaryLabel, fontSize = 12.sp
+                    )
+                }
+                Switch(checked = injectMemory, onCheckedChange = { injectMemory = it })
+            }
         }
 
         Spacer(Modifier.height(12.dp))
@@ -157,6 +171,7 @@ fun SettingsScreen(
                         agentId = agentId,
                         elevenApiKey = elevenKey,
                         elevenBackups = backups,
+                        elevenInjectMemory = injectMemory,
                         contactName = contactName,
                         persona = persona,
                     )

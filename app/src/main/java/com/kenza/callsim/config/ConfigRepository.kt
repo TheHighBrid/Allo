@@ -16,6 +16,7 @@ data class SettingsData(
     val agentId: String,
     val elevenApiKey: String,
     val elevenBackups: String,
+    val elevenInjectMemory: Boolean,
     val contactName: String,
     val persona: String,
 )
@@ -67,6 +68,16 @@ class ConfigRepository(context: Context) {
     var elevenBackups: String
         get() = prefs.getString(KEY_ELEVEN_BACKUPS, null).orEmpty()
         set(value) = prefs.edit().putString(KEY_ELEVEN_BACKUPS, value.trim()).apply()
+
+    /**
+     * When on, the app sends Kenza's persona + live memory to the ElevenLabs
+     * agent as a prompt override at connect time. Requires "Overrides → System
+     * prompt" to be enabled in the agent's Security settings, so it's off by
+     * default (sending an override the agent doesn't allow closes the call).
+     */
+    var elevenInjectMemory: Boolean
+        get() = prefs.getBoolean(KEY_ELEVEN_INJECT, false)
+        set(value) = prefs.edit().putBoolean(KEY_ELEVEN_INJECT, value).apply()
 
     /**
      * Ordered list of (agentId, apiKey) pairs to try during a call: the primary
@@ -145,6 +156,7 @@ class ConfigRepository(context: Context) {
         const val KEY_AGENT = "agent_id"
         const val KEY_API = "api_key"
         const val KEY_ELEVEN_BACKUPS = "eleven_backups"
+        const val KEY_ELEVEN_INJECT = "eleven_inject_memory"
         const val KEY_NAME = "contact_name"
         const val KEY_PERSONA = "persona_prompt"
         const val KEY_PERSONA_VERSION = "persona_version"

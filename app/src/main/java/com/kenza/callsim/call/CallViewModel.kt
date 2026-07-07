@@ -233,10 +233,15 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             )
             ProviderType.ELEVENLABS -> {
                 val (aid, key) = elevenCreds.getOrElse(credIndex) { config.agentId to config.apiKey }
+                val override = if (config.elevenInjectMemory)
+                    config.personaPrompt +
+                        MemoryContext.build(memory, config.contactName, System.currentTimeMillis())
+                else null
                 ElevenLabsProvider(
                     agentId = aid,
                     apiKey = key,
                     listener = listener,
+                    promptOverride = override,
                 )
             }
         }
@@ -442,6 +447,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         agentId = config.agentId,
         elevenApiKey = config.apiKey,
         elevenBackups = config.elevenBackups,
+        elevenInjectMemory = config.elevenInjectMemory,
         contactName = config.contactName,
         persona = config.personaPrompt,
     )
@@ -454,6 +460,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         config.agentId = s.agentId
         config.apiKey = s.elevenApiKey
         config.elevenBackups = s.elevenBackups
+        config.elevenInjectMemory = s.elevenInjectMemory
         config.contactName = s.contactName
         config.personaPrompt = s.persona
         _state.update {

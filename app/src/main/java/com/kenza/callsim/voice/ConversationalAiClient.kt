@@ -23,6 +23,9 @@ class ElevenLabsProvider(
     private val agentId: String,
     private val apiKey: String,
     private val listener: VoiceProvider.Listener,
+    // Optional persona + memory sent as a prompt override at connect time.
+    // Requires "Overrides" enabled on the agent; null = use the dashboard prompt.
+    private val promptOverride: String? = null,
 ) : VoiceProvider {
 
     companion object {
@@ -78,7 +81,7 @@ class ElevenLabsProvider(
         socket = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "socket open")
-                webSocket.send("""{"type":"conversation_initiation_client_data"}""")
+                webSocket.send(buildInitMessage())
                 listener.onConnected()
             }
 
@@ -104,6 +107,15 @@ class ElevenLabsProvider(
                 listener.onClosed(detail, fatal = code in 400..499)
             }
         })
+    }
+
+    private fun buildInitMessage(): String {
+        val init = JSONObject().put("type", "conversation_initiation_client_data")
+        if (!promptOverride.isNullOrBlank()) {
+            val agent = JSONObject().put("prompt", JSONObject().put("prompt", promptOverride))
+            init.put("conversation_config_override", JSONObject().put("agent", agent))
+        }
+        return init.toString()
     }
 
     private fun handle(webSocket: WebSocket, text: String) {
