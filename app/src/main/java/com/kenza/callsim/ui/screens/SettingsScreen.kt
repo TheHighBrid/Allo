@@ -131,9 +131,11 @@ fun SettingsScreen(
             Field("ElevenLabs API key (optional)", elevenKey, { elevenKey = it },
                 "Only for a PRIVATE agent", "Leave blank if your agent is public.")
             Field("Backup keys — auto failover", backups, { backups = it },
-                "agentId, apiKey  (one account per line)",
-                "When a key runs out of credit the call auto-switches to the next line. " +
-                    "Each ElevenLabs account has its own agent, so include both its agent ID and key.")
+                "agentId, apiKey\nagentId, apiKey",
+                "One account per line — press Enter for a new line to add a 3rd, 4th, etc. " +
+                    "When a key runs out of credit the call auto-switches to the next line. Each " +
+                    "ElevenLabs account has its own agent, so include both its agent ID and key.",
+                singleLine = false)
             Spacer(Modifier.height(4.dp))
             Text("Voice ID: ${voiceId.ifEmpty { "—" }}", color = IOSColors.SecondaryLabel, fontSize = 12.sp)
         }
@@ -192,6 +194,7 @@ private fun Field(
     onChange: (String) -> Unit,
     placeholder: String,
     help: String,
+    singleLine: Boolean = true,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -200,7 +203,8 @@ private fun Field(
             value = value,
             onValueChange = onChange,
             placeholder = { Text(placeholder, color = IOSColors.SecondaryLabel.copy(alpha = 0.6f)) },
-            singleLine = true,
+            singleLine = singleLine,
+            minLines = if (singleLine) 1 else 3,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
