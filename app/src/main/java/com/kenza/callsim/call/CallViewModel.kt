@@ -8,6 +8,10 @@ import androidx.lifecycle.viewModelScope
 import com.kenza.callsim.config.ConfigRepository
 import com.kenza.callsim.config.ProviderType
 import com.kenza.callsim.config.SettingsData
+import com.kenza.callsim.memory.MemoryContext
+import com.kenza.callsim.memory.MemoryExtractor
+import com.kenza.callsim.memory.MemoryStore
+import com.kenza.callsim.schedule.IncomingCallService
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.MicRecorder
@@ -41,6 +45,12 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var client: VoiceProvider? = null
     private var mic: MicRecorder? = null
     private var player: PcmPlayer? = null
+
+    // Long-term memory: transcript accumulates during a call and is distilled
+    // into durable memories when it ends.
+    private val memory = MemoryStore(app)
+    private val transcript = mutableListOf<Pair<String, String>>()
+    private var callStartedAt = 0L
 
     private var timerJob: Job? = null
     private var speakingResetJob: Job? = null
@@ -77,8 +87,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     fun onScheduledIncomingCall() {
         val phase = _state.value.phase
         if (phase != CallPhase.IDLE && phase != CallPhase.ENDED) return
+        // The foreground IncomingCallService already rings + vibrates; just show
+        // the incoming UI so we don't double-ring.
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
-        ringtone.start()
     }
 
     fun placeCall() {
@@ -92,11 +103,13 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun answerIncoming() {
         ringtone.stop()
+        IncomingCallService.stop(getApplication())
         beginConnecting()
     }
 
     fun declineIncoming() {
         ringtone.stop()
+        IncomingCallService.stop(getApplication())
         endCall()
     }
 
@@ -106,6 +119,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         hadUserInteraction = false
         elevenCreds = config.elevenCredentials()
         credIndex = 0
+        transcript.clear()
+        callStartedAt = System.currentTimeMillis()
         _state.update { it.copy(phase = CallPhase.CONNECTING) }
         if (!config.isConfigured) {
             // Pure UI demo — show the live call screen without needing the mic.
@@ -187,9 +202,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onUserText(text: String) {
                 // Real two-way interaction — a genuine call, so allow further reconnects.
                 hadUserInteraction = true
+                if (text.isNotBlank()) transcript.add("user" to text.trim())
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
             }
             override fun onAgentText(text: String) {
+                if (text.isNotBlank()) transcript.add("agent" to text.trim())
                 _state.update { it.copy(lastAgentText = text) }
             }
             override fun onInterrupted() {
@@ -209,7 +226,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 apiKey = config.geminiApiKey,
                 model = config.geminiModel,
                 voiceName = config.geminiVoice,
-                systemPrompt = config.personaPrompt,
+                // Persona + live memory briefing (temporal orientation, habits, recall).
+                systemPrompt = config.personaPrompt +
+                    MemoryContext.build(memory, config.contactName, System.currentTimeMillis()),
                 listener = listener,
             )
             ProviderType.ELEVENLABS -> {
@@ -357,6 +376,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun finishCall(error: String?) {
+        persistMemory()
         stopVoiceSession()
         ringtone.stop()
         timerJob?.cancel()
@@ -383,6 +403,26 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 else it
             }
         }
+    }
+
+    /**
+     * On call end: log the call (for habit awareness) and, if there was a real
+     * exchange, distill the transcript into durable memories via Gemini.
+     */
+    private fun persistMemory() {
+        val startedAt = callStartedAt
+        callStartedAt = 0L
+        if (startedAt == 0L) return
+
+        val realExchange = transcript.count { it.first == "user" } >= 1 && transcript.size >= 2
+        if (realExchange) {
+            memory.recordCall(startedAt)
+            MemoryExtractor.extract(
+                getApplication(), config.geminiApiKey, config.contactName,
+                transcript.toList(), memory
+            )
+        }
+        transcript.clear()
     }
 
     private fun stopVoiceSession() {

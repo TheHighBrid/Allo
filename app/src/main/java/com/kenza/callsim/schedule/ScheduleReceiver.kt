@@ -3,7 +3,6 @@ package com.kenza.callsim.schedule
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.kenza.callsim.config.ConfigRepository
 
 /**
  * Receives fired schedule alarms (turns them into a ringing incoming call) and
@@ -16,8 +15,7 @@ class ScheduleReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_FIRE -> {
                 val id = intent.getStringExtra(EXTRA_ID) ?: return
-                val name = ConfigRepository(app).contactName
-                IncomingCallNotifier.show(app, name)
+                IncomingCallService.start(app)
                 CallScheduler(app).onFired(id)
             }
             Intent.ACTION_BOOT_COMPLETED,

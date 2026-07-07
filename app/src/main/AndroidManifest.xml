@@ -19,6 +19,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <uses-feature
         android:name="android.hardware.microphone"
@@ -47,6 +49,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Rings + wakes the screen + shows the full-screen call when a schedule fires. -->
+        <service
+            android:name=".schedule.IncomingCallService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Fires scheduled calls and re-arms them after a reboot. -->
         <receiver

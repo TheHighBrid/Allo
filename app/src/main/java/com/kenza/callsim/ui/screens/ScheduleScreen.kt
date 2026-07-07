@@ -127,7 +127,19 @@ private fun PermissionsSection(scheduler: CallScheduler) {
             )
         }
     }
-    if (scheduler.canScheduleExact() && canOverlay) {
+    // Android 14+ gates full-screen calls behind a special access toggle. Without
+    // it, the "call" only shows a small banner instead of taking over the screen.
+    val canFullScreen = if (Build.VERSION.SDK_INT >= 34) {
+        context.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent()
+    } else true
+    if (!canFullScreen) {
+        PermRow("Full-screen calls — REQUIRED so it rings full-screen, not a banner") {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}"))
+            )
+        }
+    }
+    if (scheduler.canScheduleExact() && canOverlay && canFullScreen) {
         Text("All set — calls can ring on time and over the lock screen.",
             color = IOSColors.SecondaryLabel, fontSize = 13.sp)
     }

@@ -1,12 +1,12 @@
 package com.kenza.callsim.schedule
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.kenza.callsim.MainActivity
@@ -21,8 +21,7 @@ import com.kenza.callsim.R
 object IncomingCallNotifier {
 
     const val CHANNEL_ID = "incoming_calls"
-    private const val NOTIF_ID = 4711
-    private const val TAG = "IncomingCallNotifier"
+    const val NOTIF_ID = 4711
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -34,12 +33,16 @@ object IncomingCallNotifier {
             description = "Scheduled calls from Kenza"
             enableVibration(true)
             setBypassDnd(true)
-            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            // The foreground service plays the ringtone itself, so the channel
+            // stays silent to avoid a double ring.
+            setSound(null, null)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         nm.createNotificationChannel(channel)
     }
 
-    fun show(context: Context, contactName: String) {
+    /** The ringing-call notification that carries the full-screen intent. */
+    fun build(context: Context, contactName: String): Notification {
         ensureChannel(context)
 
         val fullScreen = Intent(context, MainActivity::class.java).apply {
@@ -49,7 +52,7 @@ object IncomingCallNotifier {
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val pi = PendingIntent.getActivity(context, 1001, fullScreen, piFlags)
 
-        val notif = NotificationCompat.Builder(context, CHANNEL_ID)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(contactName)
             .setContentText("Incoming call…")
@@ -61,13 +64,6 @@ object IncomingCallNotifier {
             .setFullScreenIntent(pi, true)
             .setContentIntent(pi)
             .build()
-
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIF_ID, notif)
-        } catch (e: SecurityException) {
-            // POST_NOTIFICATIONS not granted (Android 13+) — nothing we can do here.
-            Log.w(TAG, "notify blocked: ${e.message}")
-        }
     }
 
     fun cancel(context: Context) =
