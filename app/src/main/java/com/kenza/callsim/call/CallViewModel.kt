@@ -226,8 +226,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 apiKey = config.geminiApiKey,
                 model = config.geminiModel,
                 voiceName = config.geminiVoice,
-                // Persona + live memory briefing (temporal orientation, habits, recall).
-                systemPrompt = config.personaPrompt +
+                // Persona + live memory briefing + delivery style (native-audio tends
+                // to over-perform; this keeps her voice flat and human).
+                systemPrompt = config.personaPrompt + GEMINI_DELIVERY_STYLE +
                     MemoryContext.build(memory, config.contactName, System.currentTimeMillis()),
                 listener = listener,
             )
@@ -532,5 +533,13 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         const val NEED_MIC = "__need_mic__"
         const val DEMO_NOTICE =
             "Demo mode: no ELEVENLABS_AGENT_ID set, so the call screen works but there's no live voice. See README."
+
+        /** Delivery-style guidance for Gemini native-audio to sound natural, not sung. */
+        private const val GEMINI_DELIVERY_STYLE =
+            "\n\nVOICE & DELIVERY: Talk like a real girl on a late-night phone call — relaxed, " +
+            "casual, a little understated. Keep your tone flat and natural, the way people actually " +
+            "speak. Do NOT sing-song, do NOT over-enunciate, do NOT sound theatrical, melodic, " +
+            "bubbly, or like you're narrating. No dramatic rises and falls — just easy, real, " +
+            "low-key talking. Short, natural sentences. Reply quickly, don't drag words out.\n\n"
     }
 }

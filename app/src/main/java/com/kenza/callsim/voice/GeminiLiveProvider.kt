@@ -37,7 +37,7 @@ class GeminiLiveProvider(
         const val OUTPUT_SAMPLE_RATE = 24_000
         // Native-audio live model (free tier, most realistic). Overridable in Settings.
         const val DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
-        const val DEFAULT_VOICE = "Aoede" // breezy female preset
+        const val DEFAULT_VOICE = "Callirrhoe" // easy-going female preset (flatter, less sing-song)
     }
 
     private val http = OkHttpClient.Builder()
@@ -102,9 +102,21 @@ class GeminiLiveProvider(
             // Higher temperature = more varied, less repetitive/canned replies.
             put("temperature", 1.3)
         }
+        // Respond quickly: detect end-of-turn sooner after the user stops, so she
+        // doesn't sit in silence before replying. HIGH end-sensitivity + a short
+        // silence window is the main lever on perceived latency.
+        val realtimeInput = JSONObject().apply {
+            put("automaticActivityDetection", JSONObject().apply {
+                put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+                put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+                put("prefixPaddingMs", 20)
+                put("silenceDurationMs", 450)
+            })
+        }
         val setup = JSONObject().apply {
             put("model", "models/${model.ifBlank { DEFAULT_MODEL }}")
             put("generationConfig", genConfig)
+            put("realtimeInputConfig", realtimeInput)
             if (systemPrompt.isNotBlank()) {
                 put("systemInstruction", JSONObject().put(
                     "parts", JSONArray().put(JSONObject().put("text", systemPrompt))
