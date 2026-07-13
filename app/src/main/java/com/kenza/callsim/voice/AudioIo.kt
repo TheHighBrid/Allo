@@ -63,8 +63,10 @@ class MicRecorder(
             onError("This device can't record 16 kHz mono audio.")
             return
         }
-        // ~250 ms of audio per read keeps latency low without flooding the socket.
-        val chunkBytes = AudioConfig.SAMPLE_RATE / 4 * 2
+        // ~100 ms of audio per read keeps the Live API fed in near real time.
+        // 250 ms chunks made the user's speech arrive in lumpy batches, which
+        // was a big part of the 3-4 second "thinking" gap.
+        val chunkBytes = AudioConfig.SAMPLE_RATE / 10 * 2
         val bufSize = maxOf(minBuf, chunkBytes)
 
         // Some devices/ROMs fail to open VOICE_COMMUNICATION (AEC) capture; fall
@@ -165,7 +167,9 @@ class PcmPlayer(private val sampleRate: Int = AudioConfig.SAMPLE_RATE) {
                     .setEncoding(AudioConfig.ENCODING)
                     .build()
             )
-            .setBufferSizeInBytes(maxOf(minBuf, sampleRate))
+            // Keep the output queue short; a one-second buffer makes the agent
+            // feel delayed even when Gemini starts streaming quickly.
+            .setBufferSizeInBytes(maxOf(minBuf, sampleRate / 4 * 2))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         track?.play()
