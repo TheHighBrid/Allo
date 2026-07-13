@@ -39,7 +39,7 @@ class GeminiLiveProvider(
         // free tier. Overridable in Settings. (Native-audio option:
         // gemini-2.5-flash-native-audio-preview-12-2025 — warmer but slower.)
         const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
-        const val DEFAULT_VOICE = "Callirrhoe" // easy-going female preset (flatter, less sing-song)
+        const val DEFAULT_VOICE = "Kore" // firmer, plainer preset; less sing-song for phone calls
     }
 
     private val http = OkHttpClient.Builder()
@@ -51,7 +51,7 @@ class GeminiLiveProvider(
     @Volatile private var closedByUser = false
     // Search grounding is the newest setup field; if the model rejects the setup
     // (close 1007), reconnect once without it so the call still works.
-    @Volatile private var toolsEnabled = true
+    @Volatile private var toolsEnabled = false
     @Volatile private var retriedWithoutTools = false
 
     override fun start() {
@@ -119,7 +119,8 @@ class GeminiLiveProvider(
             put("responseModalities", JSONArray().put("AUDIO"))
             put("speechConfig", speech)
             // Higher temperature = more varied, less repetitive/canned replies.
-            put("temperature", 1.3)
+            put("temperature", 1.05)
+            put("topP", 0.9)
         }
         // Respond quickly: detect end-of-turn sooner after the user stops, so she
         // doesn't sit in silence before replying. HIGH end-sensitivity + a short
@@ -128,16 +129,18 @@ class GeminiLiveProvider(
             put("automaticActivityDetection", JSONObject().apply {
                 put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
                 put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
-                put("prefixPaddingMs", 20)
-                put("silenceDurationMs", 450)
+                put("prefixPaddingMs", 10)
+                put("silenceDurationMs", 250)
             })
         }
         val setup = JSONObject().apply {
             put("model", "models/${model.ifBlank { DEFAULT_MODEL }}")
             put("generationConfig", genConfig)
             put("realtimeInputConfig", realtimeInput)
-            // Google Search grounding so she can answer real-time questions
-            // (who's playing today, news, weather) instead of drawing a blank.
+            // Search grounding is intentionally off by default for phone calls:
+            // every tool-eligible turn can add noticeable thinking time. Keep the
+            // fast speech loop first; this flag only exists for compatibility if
+            // we re-enable search later.
             if (toolsEnabled) {
                 put("tools", JSONArray().put(JSONObject().put("googleSearch", JSONObject())))
             }
