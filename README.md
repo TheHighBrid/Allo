@@ -22,7 +22,7 @@ plays the agent's audio back, so replies feel live and in-context.
 
 Cloning a real person's voice requires **that person's explicit consent**.
 ElevenLabs' terms require you to confirm you have permission to clone any voice
-you upload. Only use Kenza's voice with her clear, informed agreement, and don't
+you upload. Only use the person's voice with her clear, informed agreement, and don't
 use the app to deceive or impersonate her to others.
 
 ---
