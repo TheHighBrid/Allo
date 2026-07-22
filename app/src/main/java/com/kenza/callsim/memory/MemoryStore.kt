@@ -184,6 +184,7 @@ class MemoryStore(context: Context) {
     @Synchronized
     fun clearAll() {
         storage.clear()
+        legacyPrefs.edit().clear().apply()
         writeState(MemorySnapshot(updatedAt = System.currentTimeMillis()))
     }
 
@@ -193,6 +194,7 @@ class MemoryStore(context: Context) {
         }
         val migrated = migrateLegacy()
         storage.write(migrated.toJson().toString())
+        legacyPrefs.edit().clear().apply()
         return migrated
     }
 
