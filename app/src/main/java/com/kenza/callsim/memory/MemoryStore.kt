@@ -190,16 +190,23 @@ class MemoryStore(context: Context) {
 
     private fun readState(): MemorySnapshot {
         storage.read()?.let { raw ->
-            runCatching { MemorySnapshot.fromJson(JSONObject(raw)) }.getOrNull()?.let { return it }
+            runCatching { MemorySnapshot.fromJson(JSONObject(raw)) }.getOrNull()?.let {
+                return ImmutableMemorySeed.apply(it)
+            }
         }
-        val migrated = migrateLegacy()
+        val migrated = ImmutableMemorySeed.apply(migrateLegacy())
         storage.write(migrated.toJson().toString())
         legacyPrefs.edit().clear().apply()
         return migrated
     }
 
     private fun writeState(state: MemorySnapshot) {
-        storage.write(state.copy(updatedAt = System.currentTimeMillis()).toJson().toString())
+        storage.write(
+            ImmutableMemorySeed.apply(state)
+                .copy(updatedAt = System.currentTimeMillis())
+                .toJson()
+                .toString()
+        )
     }
 
     /** Imports the v1 SharedPreferences data on first launch after upgrade. */
