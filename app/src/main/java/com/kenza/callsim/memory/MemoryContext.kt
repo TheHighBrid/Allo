@@ -45,19 +45,19 @@ object MemoryContext {
 
     private fun profiles(profiles: PersonalityProfiles, contactName: String): String {
         val lines = mutableListOf<String>()
-        profiles.kenzaProfile.clean(1_400).takeIf { it.isNotBlank() }?.let {
+        profiles.kenzaProfile.clean(2_600).takeIf { it.isNotBlank() }?.let {
             lines += "- About $contactName: $it"
         }
-        profiles.listenerProfile.clean(1_400).takeIf { it.isNotBlank() }?.let {
+        profiles.listenerProfile.clean(2_600).takeIf { it.isNotBlank() }?.let {
             lines += "- About Mohamed: $it"
         }
-        profiles.relationshipProfile.clean(1_400).takeIf { it.isNotBlank() }?.let {
+        profiles.relationshipProfile.clean(2_400).takeIf { it.isNotBlank() }?.let {
             lines += "- Their relationship and shared history: $it"
         }
-        profiles.ambitionsAndGoals.clean(1_200).takeIf { it.isNotBlank() }?.let {
+        profiles.ambitionsAndGoals.clean(1_600).takeIf { it.isNotBlank() }?.let {
             lines += "- $contactName's ambitions and future direction: $it"
         }
-        profiles.boundariesAndContext.clean(1_000).takeIf { it.isNotBlank() }?.let {
+        profiles.boundariesAndContext.clean(1_600).takeIf { it.isNotBlank() }?.let {
             lines += "- Important boundaries and context: $it"
         }
         return lines.joinToString("\n", postfix = if (lines.isEmpty()) "" else "\n")
