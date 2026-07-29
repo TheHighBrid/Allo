@@ -116,6 +116,7 @@ class MicRecorder(
             .onFailure {
                 onError("Couldn't start the microphone: ${it.message}")
                 running = false
+                releaseAudioResources()
                 return
             }
 
@@ -134,6 +135,7 @@ class MicRecorder(
                         onChunk(buffer.copyOf(read))
                     }
                 } else if (read < 0) {
+                    running = false
                     onError("Microphone read error ($read).")
                     break
                 }
@@ -164,16 +166,22 @@ class MicRecorder(
 
     fun stop() {
         running = false
+        // AudioRecord.read() may block. Stopping the recorder first unblocks the
+        // worker before resources are released, avoiding a thread/resource race.
+        runCatching { record?.stop() }
         worker?.join(500)
         worker = null
+        releaseAudioResources()
+    }
+
+    private fun releaseAudioResources() {
         runCatching { aec?.release() }
         aec = null
         runCatching { ns?.release() }
         ns = null
         runCatching { agc?.release() }
         agc = null
-        runCatching { record?.stop() }
-        record?.release()
+        runCatching { record?.release() }
         record = null
     }
 }

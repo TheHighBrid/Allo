@@ -93,11 +93,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        viewModel.tearDown()
-    }
-
     companion object {
         const val EXTRA_INCOMING_CALL = "extra_incoming_call"
     }
