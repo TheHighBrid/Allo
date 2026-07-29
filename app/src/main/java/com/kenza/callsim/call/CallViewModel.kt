@@ -61,13 +61,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     private var timerJob: Job? = null
     private var speakingResetJob: Job? = null
-    private var silenceMonitorJob: Job? = null
-    private var pendingHangupJob: Job? = null
+    private var dialingJob: Job? = null
     private var pendingStartAfterPermission = false
-    private var lastHumanActivityAtMs = 0L
-    private var lastAgentAudioAtMs = 0L
-    private var hasConversationActivity = false
-    private var silenceStage = 0
 
     // Auto-reconnect: when a provider ends a session (e.g. a server-side
     // conversation-duration limit) we transparently re-establish the call. To
@@ -88,7 +83,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Incoming / outgoing flow -------------------------------------------
 
     fun simulateIncomingCall() {
-        if (_state.value.phase != CallPhase.IDLE) return
+        if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
         ringtone.start()
     }
@@ -106,21 +101,25 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun placeCall() {
+        if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
         ringtone.stop()
         _state.update { it.copy(phase = CallPhase.DIALING, errorMessage = null) }
-        viewModelScope.launch {
+        dialingJob?.cancel()
+        dialingJob = viewModelScope.launch {
             delay(1500) // simulated "calling…"
-            beginConnecting()
+            if (_state.value.phase == CallPhase.DIALING) beginConnecting()
         }
     }
 
     fun answerIncoming() {
+        if (!CallTransitionRules.canAnswerIncoming(_state.value.phase)) return
         ringtone.stop()
         IncomingCallService.stop(getApplication())
         beginConnecting()
     }
 
     fun declineIncoming() {
+        if (!CallTransitionRules.canAnswerIncoming(_state.value.phase)) return
         ringtone.stop()
         IncomingCallService.stop(getApplication())
         endCall()
@@ -267,7 +266,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     private fun onSessionActive(demo: Boolean) {
-        resetConversationWatchers()
         _state.update {
             it.copy(
                 phase = CallPhase.ACTIVE,
@@ -373,8 +371,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun markSpeaking() {
-        lastAgentAudioAtMs = System.currentTimeMillis()
-        hasConversationActivity = true
         _state.update { it.copy(activity = AgentActivity.SPEAKING) }
         speakingResetJob?.cancel()
         speakingResetJob = viewModelScope.launch {
@@ -518,12 +514,12 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun finishCall(error: String?) {
+        pendingStartAfterPermission = false
+        dialingJob?.cancel(); dialingJob = null
         persistMemory()
         stopVoiceSession()
         ringtone.stop()
         timerJob?.cancel()
-        silenceMonitorJob?.cancel()
-        pendingHangupJob?.cancel()
         _state.update {
             it.copy(
                 phase = CallPhase.ENDED,
@@ -643,16 +639,25 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun tearDown() {
+        pendingStartAfterPermission = false
+        dialingJob?.cancel(); dialingJob = null
         stopVoiceSession()
         ringtone.stop()
         dtmf.release()
         timerJob?.cancel()
     }
 
+    /** ViewModels survive configuration changes, so only release call resources when truly cleared. */
+    override fun onCleared() {
+        tearDown()
+        super.onCleared()
+    }
+
     companion object {
         const val NEED_MIC = "__need_mic__"
         const val DEMO_NOTICE =
-            "Demo mode: no ELEVENLABS_AGENT_ID set, so the call screen works but there's no live voice. See README."
+            "Demo mode: the selected voice provider is not configured, so the call screen works " +
+                "without live voice. Open Settings to connect a provider."
 
         /** Compact Gemini-only behavior block (kept short to minimize first-reply latency). */
         private const val GEMINI_DELIVERY_STYLE =
