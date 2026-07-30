@@ -12,8 +12,16 @@ class PlaybackQueuePolicyTest {
         assertEquals(100, policy.durationMs(4_800))
     }
 
-    @Test fun rejectsAudioBeyondBoundedQueue() {
-        assertTrue(policy.accepts(0, 19_200))
+    @Test fun softLimitWarnsWithoutResyncingOrDroppingAudio() {
+        assertEquals(PlaybackQueueAction.ACCEPT, policy.action(0, 19_200))
+        assertEquals(PlaybackQueueAction.WARN, policy.action(19_200, 1))
         assertFalse(policy.accepts(19_200, 1))
+        assertFalse(policy.exceedsHardLimit(19_200, 1))
+    }
+
+    @Test fun onlyMultiSecondStaleAudioRequestsAResync() {
+        assertEquals(PlaybackQueueAction.WARN, policy.action(0, 192_000))
+        assertEquals(PlaybackQueueAction.RESYNC, policy.action(192_000, 1))
+        assertTrue(policy.exceedsHardLimit(192_000, 1))
     }
 }
