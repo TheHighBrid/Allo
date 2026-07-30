@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CallEnd
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -66,24 +69,27 @@ fun InCallScreen(
         Text(statusLine(state), color = IOSColors.SecondaryLabel, fontSize = 17.sp)
 
         if (state.phase == CallPhase.ACTIVE) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (state.micStreaming) "🎙 mic streaming" else "⚠ waiting for mic…",
-                color = if (state.micStreaming) IOSColors.Green else Color(0xFFFFCC00),
-                fontSize = 13.sp
-            )
+            Spacer(Modifier.height(10.dp))
+            ConnectionPill(connected = state.micStreaming, muted = state.isMuted)
         }
 
         if (state.lastAgentText.isNotEmpty() && state.phase == CallPhase.ACTIVE) {
             Spacer(Modifier.height(18.dp))
-            Text(
-                text = state.lastAgentText,
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 15.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                modifier = Modifier.widthIn(max = 320.dp)
-            )
+            Surface(
+                color = Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.widthIn(max = 340.dp),
+            ) {
+                Text(
+                    text = state.lastAgentText,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 15.sp,
+                    lineHeight = 21.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                )
+            }
         }
 
         Spacer(Modifier.weight(1f))
@@ -116,6 +122,30 @@ fun InCallScreen(
             Icon(Icons.Filled.CallEnd, contentDescription = "End call", tint = Color.White, modifier = Modifier.size(34.dp))
         }
         Spacer(Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun ConnectionPill(connected: Boolean, muted: Boolean) {
+    val color = when {
+        muted -> IOSColors.SecondaryLabel
+        connected -> IOSColors.Green
+        else -> Color(0xFFFFCC00)
+    }
+    val label = when {
+        muted -> "Microphone muted"
+        connected -> "Live audio"
+        else -> "Connecting microphone"
+    }
+    Surface(color = Color.White.copy(alpha = 0.08f), shape = RoundedCornerShape(50)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Box(Modifier.size(7.dp).background(color, CircleShape))
+            Text(label, color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp)
+        }
     }
 }
 
