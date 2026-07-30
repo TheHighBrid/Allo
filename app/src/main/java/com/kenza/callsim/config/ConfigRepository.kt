@@ -73,6 +73,12 @@ class ConfigRepository(context: Context) {
             ?: GeminiLiveProvider.DEFAULT_VOICE
         set(value) = prefs.edit().putString(KEY_GEMINI_VOICE, value.trim()).apply()
 
+    /** HTTPS endpoint returning `{ "token": "..." }` or Google's `{ "name": "..." }`. */
+    var geminiTokenBrokerUrl: String
+        get() = prefs.getString(KEY_GEMINI_TOKEN_BROKER, null)?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.GEMINI_TOKEN_BROKER_URL
+        set(value) = prefs.edit().putString(KEY_GEMINI_TOKEN_BROKER, value.trim()).apply()
+
     // ---- ElevenLabs (premium / cloned voice) ----
     var agentId: String
         get() = prefs.getString(KEY_AGENT, null)?.takeIf { it.isNotBlank() }
@@ -159,7 +165,7 @@ class ConfigRepository(context: Context) {
     /** Is the currently-selected provider configured enough to start a call? */
     val isConfigured: Boolean
         get() = when (provider) {
-            ProviderType.GEMINI -> geminiApiKey.trim().isNotEmpty()
+            ProviderType.GEMINI -> geminiApiKey.trim().isNotEmpty() || geminiTokenBrokerUrl.isNotEmpty()
             ProviderType.ELEVENLABS -> agentId.trim().isNotEmpty()
         }
 
@@ -167,11 +173,17 @@ class ConfigRepository(context: Context) {
         get() = prefs.getBoolean(KEY_CONSENT, false)
         set(value) = prefs.edit().putBoolean(KEY_CONSENT, value).apply()
 
+    /** Content-free timing records are opt-in even though they only use Logcat. */
+    var diagnosticsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DIAGNOSTICS, false)
+        set(value) = prefs.edit().putBoolean(KEY_DIAGNOSTICS, value).apply()
+
     private companion object {
         const val KEY_PROVIDER = "provider"
         const val KEY_GEMINI_KEY = "gemini_api_key"
         const val KEY_GEMINI_MODEL = "gemini_model"
         const val KEY_GEMINI_VOICE = "gemini_voice"
+        const val KEY_GEMINI_TOKEN_BROKER = "gemini_token_broker_url"
         const val KEY_AGENT = "agent_id"
         const val KEY_API = "api_key"
         const val KEY_ELEVEN_BACKUPS = "eleven_backups"
@@ -180,6 +192,7 @@ class ConfigRepository(context: Context) {
         const val KEY_PERSONA = "persona_prompt"
         const val KEY_PERSONA_VERSION = "persona_version"
         const val KEY_CONSENT = "consent_accepted"
+        const val KEY_DIAGNOSTICS = "live_diagnostics"
 
         /** Bump whenever defaultPersona() changes so stale saved copies are dropped. */
         const val CURRENT_PERSONA_VERSION = 6

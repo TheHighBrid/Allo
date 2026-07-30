@@ -19,6 +19,8 @@ interface VoiceProvider {
      * Only supported by providers that accept client text; no-op otherwise.
      */
     fun sendText(text: String) {}
+    /** Signal an intentional microphone pause (mute), never a normal VAD turn. */
+    fun endAudioStream() {}
 
     interface Listener {
         /** Socket open; handshake in progress. */
@@ -33,6 +35,10 @@ interface VoiceProvider {
         fun onAgentText(text: String)
         /** The user barged in; stop playing buffered agent audio. */
         fun onInterrupted()
+        fun onUsage(total: Int?, prompt: Int?, response: Int?) {}
+        fun onMicPacketQueued(socketQueueBytes: Long) {}
+        fun onGenerationComplete() {}
+        fun onTurnComplete() {}
         /**
          * Session ended. [fatal] = true for unrecoverable causes (out of quota,
          * bad key, auth) where reconnecting would just loop; the call should end

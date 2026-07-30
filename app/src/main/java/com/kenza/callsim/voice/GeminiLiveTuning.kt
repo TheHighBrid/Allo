@@ -16,4 +16,13 @@ object GeminiLiveTuning {
 
     /** Keep client playback buffering short so streamed speech starts promptly. */
     const val OUTPUT_BUFFER_MS = 100
+
+    /** Soft warning threshold; crossing it must never cut words from playback. */
+    const val MAX_PLAYBACK_QUEUE_MS = 400
+
+    /** Last-resort stale-audio limit, deliberately far above normal jitter. */
+    const val HARD_PLAYBACK_QUEUE_MS = 4_000
+
+    /** Bound each blocking AudioTrack write so an interruption can flush quickly. */
+    const val PLAYBACK_WRITE_CHUNK_MS = 20
 }
