@@ -247,3 +247,17 @@ This does not affect normal Gemini operation. ElevenLabs is optional. Check its 
 ## Security
 
 Never commit API keys, voice recordings, private memories, call transcripts, or relationship data. Public production builds should avoid embedding long-lived provider credentials in the APK.
+# Gemini Live latency and release security
+
+Gemini audio remains JSON/Base64 PCM over the Live WebSocket. Playback runs on
+a bounded audio-priority worker, earpiece/headset routes permit barge-in, and
+speakerphone stays half duplex for echo safety. Muting sends `audioStreamEnd`.
+
+For a distributed build, set `GEMINI_TOKEN_BROKER_URL` in `local.properties` to
+an HTTPS endpoint returning either `{ "token": "..." }` or the Google token
+resource shape `{ "name": "..." }`. Release builds deliberately compile an
+empty `GEMINI_API_KEY`; a local key remains a private debug fallback only.
+
+Content-free turn diagnostics are disabled by default (`live_diagnostics` in
+the private app preferences). They report timing, queue depth, route, token
+count, and underruns, never audio bytes or transcript text.

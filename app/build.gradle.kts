@@ -37,6 +37,7 @@ android {
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"${secret("ELEVENLABS_API_KEY")}\"")
         buildConfigField("String", "ELEVENLABS_VOICE_ID", "\"${secret("ELEVENLABS_VOICE_ID")}\"")
         buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+        buildConfigField("String", "GEMINI_TOKEN_BROKER_URL", "\"${secret("GEMINI_TOKEN_BROKER_URL")}\"")
         buildConfigField("String", "CONTACT_NAME", "\"${secret("CONTACT_NAME").ifEmpty { "Kenza" }}\"")
     }
 
@@ -53,6 +54,8 @@ android {
 
     buildTypes {
         release {
+            // Distributed builds must use the runtime ephemeral-token broker.
+            buildConfigField("String", "GEMINI_API_KEY", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

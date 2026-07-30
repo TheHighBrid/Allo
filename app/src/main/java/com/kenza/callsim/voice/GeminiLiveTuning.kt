@@ -16,4 +16,7 @@ object GeminiLiveTuning {
 
     /** Keep client playback buffering short so streamed speech starts promptly. */
     const val OUTPUT_BUFFER_MS = 100
+
+    /** Hard ceiling that prevents delayed speech surviving a network burst. */
+    const val MAX_PLAYBACK_QUEUE_MS = 400
 }
