@@ -24,9 +24,12 @@ class PlaybackQueuePolicy(
     private val sampleRate: Int,
     private val maximumMs: Int = GeminiLiveTuning.MAX_PLAYBACK_QUEUE_MS,
 ) {
+    private val maximumBytes: Long =
+        sampleRate.toLong() * AudioConfig.BYTES_PER_SAMPLE * maximumMs / 1_000L
+
     fun durationMs(bytes: Int): Int =
         ((bytes.toLong() * 1_000L) / (sampleRate * AudioConfig.BYTES_PER_SAMPLE)).toInt()
 
     fun accepts(currentBytes: Int, incomingBytes: Int): Boolean =
-        durationMs(currentBytes + incomingBytes) <= maximumMs
+        currentBytes.toLong() + incomingBytes.toLong() <= maximumBytes
 }
