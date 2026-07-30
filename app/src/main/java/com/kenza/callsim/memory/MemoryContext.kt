@@ -212,5 +212,5 @@ object MemoryContext {
         .trim()
         .take(limit)
 
-    private const val MAX_CONTEXT_CHARS = 14_000
+    private const val MAX_CONTEXT_CHARS = 8_000
 }

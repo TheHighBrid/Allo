@@ -19,3 +19,4 @@ ELEVENLABS_API_KEY=
 
 # Optional: name shown on the call screen (defaults to "Kenza").
 CONTACT_NAME=Kenza
+GEMINI_TOKEN_BROKER_URL=
