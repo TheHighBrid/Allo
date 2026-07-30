@@ -24,6 +24,7 @@ class GeminiLiveProvider(
     private val voiceName: String,
     private val systemPrompt: String,
     private val listener: VoiceProvider.Listener,
+    private val tokenBrokerUrl: String = "",
 ) : VoiceProvider {
 
     companion object {
@@ -48,6 +49,7 @@ class GeminiLiveProvider(
     @Volatile private var latestSessionHandle: String? = null
     @Volatile private var modelGenerating = false
     @Volatile private var goAwayPending = false
+    @Volatile private var sessionEphemeralToken: String? = null
     @Volatile private var consecutiveResumeAttempts = 0
 
     // Current Gemini Live models support compression and resumption. If a custom
@@ -58,21 +60,32 @@ class GeminiLiveProvider(
 
     override fun start() {
         closedByUser = false
-        if (apiKey.isBlank()) {
+        if (apiKey.isBlank() && tokenBrokerUrl.isBlank()) {
             listener.onClosed("No Gemini API key set. Open Settings and paste your key.", fatal = true)
             return
         }
-        connect(resuming = false)
+        if (tokenBrokerUrl.isBlank()) connect(resuming = false)
+        else thread(name = "gemini-token") {
+            val token = fetchEphemeralToken()
+            if (token == null) listener.onClosed("Ephemeral token broker request failed.", fatal = true)
+            else {
+                sessionEphemeralToken = token
+                connect(resuming = false, ephemeralToken = token)
+            }
+        }
     }
 
-    private fun connect(resuming: Boolean) {
+    private fun connect(resuming: Boolean, ephemeralToken: String? = sessionEphemeralToken) {
         val connectionId = synchronized(connectionLock) {
             nextConnectionId += 1
             activeConnectionId = nextConnectionId
             activeConnectionId
         }
         val method = "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-        val url = "wss://$HOST/ws/$method?key=${apiKey.trim()}"
+        val url = okhttp3.HttpUrl.Builder().scheme("https").host(HOST)
+            .addPathSegments("ws/$method")
+            .addQueryParameter(if (ephemeralToken == null) "key" else "access_token", ephemeralToken ?: apiKey.trim())
+            .build().toString().replaceFirst("https://", "wss://")
         val request = Request.Builder().url(url).build()
         val webSocket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -123,6 +136,15 @@ class GeminiLiveProvider(
         }
     }
 
+    private fun fetchEphemeralToken(): String? = runCatching {
+        require(tokenBrokerUrl.startsWith("https://"))
+        http.newCall(Request.Builder().url(tokenBrokerUrl).get().build()).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val json = JSONObject(response.body?.string().orEmpty())
+            json.optString("token").ifBlank { json.optString("name") }.takeIf { it.isNotBlank() }
+        }
+    }.getOrNull()
+
     private fun buildSetup(): JSONObject {
         val speech = JSONObject().apply {
             put("voiceConfig", JSONObject().apply {
@@ -170,6 +192,13 @@ class GeminiLiveProvider(
     private fun handle(connectionId: Int, text: String) {
         if (!isCurrent(connectionId)) return
         val json = runCatching { JSONObject(text) }.getOrNull() ?: return
+        json.optJSONObject("usageMetadata")?.let { usage ->
+            listener.onUsage(
+                usage.optInt("totalTokenCount").takeIf { usage.has("totalTokenCount") },
+                usage.optInt("promptTokenCount").takeIf { usage.has("promptTokenCount") },
+                usage.optInt("responseTokenCount").takeIf { usage.has("responseTokenCount") },
+            )
+        }
         when {
             json.has("setupComplete") -> {
                 consecutiveResumeAttempts = 0
@@ -205,6 +234,8 @@ class GeminiLiveProvider(
                         }
                     }
                 }
+                if (content.optBoolean("generationComplete")) listener.onGenerationComplete()
+                if (content.optBoolean("turnComplete")) listener.onTurnComplete()
                 if (content.optBoolean("generationComplete") || content.optBoolean("turnComplete")) {
                     modelGenerating = false
                     if (goAwayPending) resumeConnection("generation completed after goAway")
@@ -213,7 +244,7 @@ class GeminiLiveProvider(
             json.has("goAway") -> {
                 goAwayPending = true
                 Log.i(TAG, "goAway received: ${json.optJSONObject("goAway")?.opt("timeLeft")}")
-                scheduleGoAwayResume(connectionId)
+                scheduleGoAwayResume(connectionId, parseGoAwayDelayMs(json.optJSONObject("goAway")?.opt("timeLeft")))
             }
         }
     }
@@ -231,6 +262,7 @@ class GeminiLiveProvider(
             ),
         )
         currentSocket.send(message.toString())
+        listener.onMicPacketQueued(currentSocket.queueSize())
     }
 
     override fun sendText(text: String) {
@@ -244,9 +276,13 @@ class GeminiLiveProvider(
         )
     }
 
-    private fun scheduleGoAwayResume(connectionId: Int) {
+    override fun endAudioStream() {
+        socket?.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
+    }
+
+    private fun scheduleGoAwayResume(connectionId: Int, delayMs: Long) {
         thread(name = "gemini-go-away") {
-            val deadline = System.currentTimeMillis() + 4_000L
+            val deadline = System.currentTimeMillis() + delayMs
             while (isCurrent(connectionId) && modelGenerating && System.currentTimeMillis() < deadline) {
                 Thread.sleep(100L)
             }
@@ -254,6 +290,15 @@ class GeminiLiveProvider(
                 resumeConnection("server goAway")
             }
         }
+    }
+
+    internal fun parseGoAwayDelayMs(value: Any?): Long {
+        val raw = when (value) {
+            is Number -> value.toDouble() * 1_000.0
+            is String -> Regex("[0-9]+(?:\\.[0-9]+)?").find(value)?.value?.toDoubleOrNull()?.times(1_000.0)
+            else -> null
+        } ?: 4_000.0
+        return (raw.toLong() - 500L).coerceIn(500L, 60_000L)
     }
 
     @Synchronized

@@ -29,14 +29,15 @@ android {
         applicationId = "com.kenza.callsim"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "3.9.0"
+        versionCode = 27
+        versionName = "3.9.5"
 
         // Pulled from local.properties (see README). Empty by default.
         buildConfigField("String", "ELEVENLABS_AGENT_ID", "\"${secret("ELEVENLABS_AGENT_ID")}\"")
         buildConfigField("String", "ELEVENLABS_API_KEY", "\"${secret("ELEVENLABS_API_KEY")}\"")
         buildConfigField("String", "ELEVENLABS_VOICE_ID", "\"${secret("ELEVENLABS_VOICE_ID")}\"")
         buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+        buildConfigField("String", "GEMINI_TOKEN_BROKER_URL", "\"${secret("GEMINI_TOKEN_BROKER_URL")}\"")
         buildConfigField("String", "CONTACT_NAME", "\"${secret("CONTACT_NAME").ifEmpty { "Kenza" }}\"")
     }
 
@@ -53,6 +54,8 @@ android {
 
     buildTypes {
         release {
+            // Distributed builds must use the runtime ephemeral-token broker.
+            buildConfigField("String", "GEMINI_API_KEY", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

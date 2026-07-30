@@ -10,9 +10,11 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
-import android.os.Build
+import android.os.Process
 import android.util.Log
 import kotlin.concurrent.thread
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Shared PCM format used by both supported live providers. */
 object AudioConfig {
@@ -38,6 +40,7 @@ class MicRecorder(
 
     @Volatile var muted: Boolean = false
     @Volatile var agentSpeaking: Boolean = false
+    @Volatile var speakerphoneOn: Boolean = false
 
     private var record: AudioRecord? = null
     @Volatile private var running = false
@@ -130,8 +133,8 @@ class MicRecorder(
                         announced = true
                         onStreaming()
                     }
-                    val headsetFullDuplex = routedInputSupportsBargeIn()
-                    if (!muted && (!agentSpeaking || headsetFullDuplex)) {
+                    val fullDuplex = routedInputSupportsBargeIn()
+                    if (!muted && (!agentSpeaking || fullDuplex)) {
                         onChunk(buffer.copyOf(read))
                     }
                 } else if (read < 0) {
@@ -152,16 +155,9 @@ class MicRecorder(
         val type = record?.routedDevice?.type ?: return false
         if (lastRouteType != type) {
             lastRouteType = type
-            Log.i(TAG, "input route type=$type fullDuplex=${isHeadsetInput(type)}")
+            Log.i(TAG, "input route type=$type fullDuplex=${AudioRoutePolicy.allowsFullDuplex(type, speakerphoneOn)}")
         }
-        return isHeadsetInput(type)
-    }
-
-    private fun isHeadsetInput(type: Int): Boolean = when (type) {
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-        AudioDeviceInfo.TYPE_WIRED_HEADSET,
-        AudioDeviceInfo.TYPE_USB_HEADSET -> true
-        else -> Build.VERSION.SDK_INT >= 31 && type == AudioDeviceInfo.TYPE_BLE_HEADSET
+        return AudioRoutePolicy.allowsFullDuplex(type, speakerphoneOn)
     }
 
     fun stop() {
@@ -187,9 +183,28 @@ class MicRecorder(
 }
 
 /** Streams agent PCM to the phone audio route with a deliberately short queue. */
-class PcmPlayer(private val sampleRate: Int = AudioConfig.SAMPLE_RATE) {
+interface PlaybackMetrics {
+    fun onQueued(queueMs: Int) {}
+    fun onOverflow() {}
+    fun onPlaybackHeadAdvanced() {}
+    companion object { val NOOP = object : PlaybackMetrics {} }
+}
+
+class PcmPlayer(
+    private val sampleRate: Int = AudioConfig.SAMPLE_RATE,
+    private val metrics: PlaybackMetrics = PlaybackMetrics.NOOP,
+) {
 
     private var track: AudioTrack? = null
+    private data class QueuedPcm(val epoch: Long, val pcm: ByteArray)
+
+    private val queue = LinkedBlockingQueue<QueuedPcm>()
+    private val queuedBytes = AtomicInteger()
+    private val queueEpoch = java.util.concurrent.atomic.AtomicLong()
+    private val trackLock = Any()
+    private val policy = PlaybackQueuePolicy(sampleRate)
+    @Volatile private var running = false
+    private var worker: Thread? = null
 
     fun start() {
         if (track != null) return
@@ -217,30 +232,94 @@ class PcmPlayer(private val sampleRate: Int = AudioConfig.SAMPLE_RATE) {
             .setBufferSizeInBytes(maxOf(minimumBuffer, targetBuffer))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
+        val requestedFrames = sampleRate * GeminiLiveTuning.OUTPUT_BUFFER_MS / 1_000
+        val resized = runCatching { track?.setBufferSizeInFrames(requestedFrames) }.getOrNull()
         track?.play()
+        Log.i(TAG, "AudioTrack buffer frames requested=$requestedFrames actual=${track?.bufferSizeInFrames} capacity=${track?.bufferCapacityInFrames} resized=$resized underruns=${track?.underrunCount}")
+        running = true
+        worker = thread(name = "pcm-playback", priority = Thread.MAX_PRIORITY) {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+            var advanced = false
+            while (running) {
+                val item = runCatching { queue.take() }.getOrNull() ?: continue
+                val pcm = item.pcm
+                if (pcm.isEmpty()) {
+                    synchronized(trackLock) {
+                        runCatching { track?.pause(); track?.flush(); track?.play() }
+                    }
+                    continue
+                }
+                val writeBytes = sampleRate * GeminiLiveTuning.PLAYBACK_WRITE_CHUNK_MS /
+                    1_000 * AudioConfig.BYTES_PER_SAMPLE
+                var offset = 0
+                while (running && offset < pcm.size && item.epoch == queueEpoch.get()) {
+                    val size = minOf(writeBytes, pcm.size - offset)
+                    synchronized(trackLock) {
+                        if (item.epoch == queueEpoch.get()) {
+                            track?.write(pcm, offset, size, AudioTrack.WRITE_BLOCKING)
+                        }
+                    }
+                    offset += size
+                }
+                if (item.epoch == queueEpoch.get()) {
+                    queuedBytes.updateAndGet { (it - pcm.size).coerceAtLeast(0) }
+                }
+                if (!advanced && (track?.playbackHeadPosition ?: 0) > 0) {
+                    advanced = true
+                    metrics.onPlaybackHeadAdvanced()
+                }
+            }
+        }
     }
 
-    fun write(pcm: ByteArray) {
-        track?.write(pcm, 0, pcm.size)
+    /** Non-blocking: AudioTrack is owned exclusively by pcm-playback. */
+    fun enqueue(pcm: ByteArray) {
+        if (!running || pcm.isEmpty()) return
+        val current = queuedBytes.get()
+        if (!policy.accepts(current, pcm.size)) {
+            metrics.onOverflow()
+        }
+        // A normal 400 ms burst is only reported, never discarded. Clearing at
+        // that threshold produced half-words whenever network delivery briefly
+        // ran ahead of AudioTrack. Resync only if audio is several seconds stale.
+        if (policy.exceedsHardLimit(current, pcm.size)) flush()
+
+        val epoch = queueEpoch.get()
+        // Copy once and return. Chunking belongs on the audio worker; doing many
+        // copyOfRange calls here made large model frames stall the socket callback.
+        queuedBytes.addAndGet(pcm.size)
+        queue.offer(QueuedPcm(epoch, pcm.copyOf()))
+        metrics.onQueued(queuedDurationMs())
     }
+
+    fun queuedDurationMs(): Int = policy.durationMs(queuedBytes.get())
 
     /** Immediately discard unsounded speech when Gemini reports interruption. */
     fun flush() {
-        runCatching {
-            track?.pause()
-            track?.flush()
-            track?.play()
-        }
+        val epoch = queueEpoch.incrementAndGet()
+        queue.clear()
+        queuedBytes.set(0)
+        // A command is consumed by the audio worker; WebSocket callbacks never
+        // wait for a possibly-blocking AudioTrack write to release trackLock.
+        if (running) queue.offer(QueuedPcm(epoch, ByteArray(0)))
     }
 
     fun stop() {
-        runCatching {
-            track?.pause()
-            track?.flush()
-            track?.stop()
+        running = false
+        queue.clear()
+        queuedBytes.set(0)
+        worker?.interrupt()
+        synchronized(trackLock) {
+            runCatching {
+                track?.pause()
+                track?.flush()
+                track?.stop()
+            }
+            track?.release()
+            track = null
         }
-        track?.release()
-        track = null
+        worker?.join(500)
+        worker = null
     }
 
     companion object

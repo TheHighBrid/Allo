@@ -17,6 +17,8 @@ import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.MicRecorder
 import com.kenza.callsim.voice.PcmPlayer
 import com.kenza.callsim.voice.VoiceProvider
+import com.kenza.callsim.voice.LiveTurnTelemetry
+import com.kenza.callsim.voice.TranscriptAssembler
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +47,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var client: VoiceProvider? = null
     private var mic: MicRecorder? = null
     private var player: PcmPlayer? = null
+    private var telemetry = LiveTurnTelemetry(false)
+    private val transcriptAssembler = TranscriptAssembler()
 
     // Long-term memory: transcript accumulates during a call and is distilled
     // into durable memories when it ends.
@@ -186,6 +190,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         configureAudioRouting()
+        telemetry = LiveTurnTelemetry(config.diagnosticsEnabled)
 
         val ai = buildProvider(object : VoiceProvider.Listener {
             override fun onConnected() {
@@ -195,41 +200,57 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 // Now we know the agent's audio rate — open the player to match,
                 // then start streaming the mic and go live.
                 if (player == null) {
-                    player = PcmPlayer(outputSampleRate).also { it.start() }
+                    player = PcmPlayer(outputSampleRate, telemetry).also { it.start() }
                 }
                 if (mic == null) {
                     mic = MicRecorder(
                         onChunk = { chunk -> client?.sendAudio(chunk) },
                         onError = { msg -> handleDisconnect("Microphone: $msg", fatal = true) },
                         onStreaming = { _state.update { it.copy(micStreaming = true) } }
-                    ).also { it.start() }
+                    ).also {
+                        it.speakerphoneOn = _state.value.isSpeakerOn
+                        it.start()
+                    }
                 }
                 onSessionActive(demo = false)
             }
             override fun onAgentAudio(pcm: ByteArray) {
                 mic?.agentSpeaking = true
                 lastActivityAt = System.currentTimeMillis()
-                player?.write(pcm)
+                telemetry.modelAudio()
+                player?.enqueue(pcm)
                 markSpeaking()
             }
             override fun onUserText(text: String) {
                 // Real two-way interaction — a genuine call, so allow further reconnects.
                 hadUserInteraction = true
-                if (text.isNotBlank()) transcript.add("user" to text.trim())
+                transcriptAssembler.appendUser(text)
                 lastActivityAt = System.currentTimeMillis()
                 nudgeCount = 0
                 onConversationLine(fromUser = true, text = text)
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
             }
             override fun onAgentText(text: String) {
-                if (text.isNotBlank()) transcript.add("agent" to text.trim())
+                transcriptAssembler.appendAgent(text)
                 lastActivityAt = System.currentTimeMillis()
                 onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
             }
             override fun onInterrupted() {
+                telemetry.interrupted()
+                transcript += transcriptAssembler.commit()
                 player?.flush()
                 _state.update { it.copy(activity = AgentActivity.LISTENING) }
+            }
+            override fun onUsage(total: Int?, prompt: Int?, response: Int?) = telemetry.usage(total)
+            override fun onMicPacketQueued(socketQueueBytes: Long) = telemetry.micQueued(socketQueueBytes)
+            override fun onGenerationComplete() = telemetry.generationComplete()
+            override fun onTurnComplete() {
+                transcript += transcriptAssembler.commit()
+                telemetry.complete(
+                    route = if (_state.value.isSpeakerOn) "speakerphone" else "earpiece_or_headset",
+                    sessionAgeMs = (System.currentTimeMillis() - callStartedAt).coerceAtLeast(0),
+                )
             }
             override fun onClosed(reason: String, fatal: Boolean) =
                 handleDisconnect("Disconnected: $reason", fatal)
@@ -249,6 +270,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 systemPrompt = config.personaPrompt + GEMINI_DELIVERY_STYLE +
                     MemoryContext.build(memory, config.contactName, System.currentTimeMillis()),
                 listener = listener,
+                tokenBrokerUrl = config.geminiTokenBrokerUrl,
             )
             ProviderType.ELEVENLABS -> {
                 val (aid, key) = elevenCreds.getOrElse(credIndex) { config.agentId to config.apiKey }
@@ -479,6 +501,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleMute() {
         val muted = !_state.value.isMuted
+        if (muted) client?.endAudioStream()
         mic?.muted = muted
         _state.update { it.copy(isMuted = muted) }
     }
@@ -487,6 +510,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         val on = !_state.value.isSpeakerOn
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = on
+        mic?.speakerphoneOn = on
         _state.update { it.copy(isSpeakerOn = on) }
     }
 
@@ -563,6 +587,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         transcript.clear()
+        transcriptAssembler.clear()
     }
 
     private fun stopVoiceSession() {
@@ -662,8 +687,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         /** Compact Gemini-only behavior block (kept short to minimize first-reply latency). */
         private const val GEMINI_DELIVERY_STYLE =
             "\n\nDELIVERY: this is a live phone call. Answer immediately, like a normal person, " +
-            "usually in 3-12 words unless they asked for more. Use a plain conversational voice: " +
+            "Greetings and acknowledgements are 2-8 words; simple answers are one short sentence. " +
+            "For emotional moments, react once and ask at most one follow-up. Explain briefly first " +
+            "and add detail only when asked. Stop immediately when interrupted. Use a plain conversational voice: " +
             "no sing-song, no customer-service cheer, no theatrical emotion, no drawn-out words. " +
+            "Never manufacture fillers, breaths, or background events. " +
             "Do not start every reply with 'hey' or 'how about you'. If the user says 'hey how " +
             "are you', a natural reply is 'i'm good baby, what about you' — short and instant.\n" +
             "EMOTION: react to the actual sentence with small real cues (soft laugh, teasing, " +
