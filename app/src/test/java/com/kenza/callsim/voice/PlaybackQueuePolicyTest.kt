@@ -16,9 +16,4 @@ class PlaybackQueuePolicyTest {
         assertTrue(policy.accepts(0, 19_200))
         assertFalse(policy.accepts(19_200, 1))
     }
-
-    @Test fun hardLimitAllowsJitterWithoutAllowingSecondsOfStaleAudio() {
-        assertFalse(policy.exceedsHardLimit(19_200, 4_800))
-        assertTrue(policy.exceedsHardLimit(192_000, 1))
-    }
 }

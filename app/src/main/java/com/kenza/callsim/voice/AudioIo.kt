@@ -196,11 +196,8 @@ class PcmPlayer(
 ) {
 
     private var track: AudioTrack? = null
-    private data class QueuedPcm(val epoch: Long, val pcm: ByteArray)
-
-    private val queue = LinkedBlockingQueue<QueuedPcm>()
+    private val queue = LinkedBlockingQueue<ByteArray>()
     private val queuedBytes = AtomicInteger()
-    private val queueEpoch = java.util.concurrent.atomic.AtomicLong()
     private val trackLock = Any()
     private val policy = PlaybackQueuePolicy(sampleRate)
     @Volatile private var running = false
@@ -241,28 +238,16 @@ class PcmPlayer(
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
             var advanced = false
             while (running) {
-                val item = runCatching { queue.take() }.getOrNull() ?: continue
-                val pcm = item.pcm
+                val pcm = runCatching { queue.take() }.getOrNull() ?: continue
                 if (pcm.isEmpty()) {
                     synchronized(trackLock) {
                         runCatching { track?.pause(); track?.flush(); track?.play() }
                     }
                     continue
                 }
-                val writeBytes = sampleRate * GeminiLiveTuning.PLAYBACK_WRITE_CHUNK_MS /
-                    1_000 * AudioConfig.BYTES_PER_SAMPLE
-                var offset = 0
-                while (running && offset < pcm.size && item.epoch == queueEpoch.get()) {
-                    val size = minOf(writeBytes, pcm.size - offset)
-                    synchronized(trackLock) {
-                        if (item.epoch == queueEpoch.get()) {
-                            track?.write(pcm, offset, size, AudioTrack.WRITE_BLOCKING)
-                        }
-                    }
-                    offset += size
-                }
-                if (item.epoch == queueEpoch.get()) {
-                    queuedBytes.updateAndGet { (it - pcm.size).coerceAtLeast(0) }
+                queuedBytes.addAndGet(-pcm.size)
+                synchronized(trackLock) {
+                    if (running) track?.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
                 }
                 if (!advanced && (track?.playbackHeadPosition ?: 0) > 0) {
                     advanced = true
@@ -278,17 +263,10 @@ class PcmPlayer(
         val current = queuedBytes.get()
         if (!policy.accepts(current, pcm.size)) {
             metrics.onOverflow()
+            flush()
         }
-        // A normal 400 ms burst is only reported, never discarded. Clearing at
-        // that threshold produced half-words whenever network delivery briefly
-        // ran ahead of AudioTrack. Resync only if audio is several seconds stale.
-        if (policy.exceedsHardLimit(current, pcm.size)) flush()
-
-        val epoch = queueEpoch.get()
-        // Copy once and return. Chunking belongs on the audio worker; doing many
-        // copyOfRange calls here made large model frames stall the socket callback.
         queuedBytes.addAndGet(pcm.size)
-        queue.offer(QueuedPcm(epoch, pcm.copyOf()))
+        queue.offer(pcm.copyOf())
         metrics.onQueued(queuedDurationMs())
     }
 
@@ -296,12 +274,11 @@ class PcmPlayer(
 
     /** Immediately discard unsounded speech when Gemini reports interruption. */
     fun flush() {
-        val epoch = queueEpoch.incrementAndGet()
         queue.clear()
         queuedBytes.set(0)
         // A command is consumed by the audio worker; WebSocket callbacks never
         // wait for a possibly-blocking AudioTrack write to release trackLock.
-        if (running) queue.offer(QueuedPcm(epoch, ByteArray(0)))
+        if (running) queue.offer(ByteArray(0))
     }
 
     fun stop() {

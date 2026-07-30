@@ -250,10 +250,8 @@ Never commit API keys, voice recordings, private memories, call transcripts, or 
 # Gemini Live latency and release security
 
 Gemini audio remains JSON/Base64 PCM over the Live WebSocket. Playback runs on
-a bounded audio-priority worker. Headsets permit barge-in; built-in earpiece and
-speakerphone routes default to half duplex because device AEC can otherwise
-feed the model's voice back as false interruptions. Muting sends
-`audioStreamEnd`.
+a bounded audio-priority worker, earpiece/headset routes permit barge-in, and
+speakerphone stays half duplex for echo safety. Muting sends `audioStreamEnd`.
 
 For a distributed build, set `GEMINI_TOKEN_BROKER_URL` in `local.properties` to
 an HTTPS endpoint returning either `{ "token": "..." }` or the Google token

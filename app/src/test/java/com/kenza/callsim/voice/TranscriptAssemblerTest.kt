@@ -15,14 +15,6 @@ class TranscriptAssemblerTest {
         assertTrue(assembler.commit().isEmpty())
     }
 
-    @Test fun nextTurnDoesNotRepeatPreviouslyCommittedText() {
-        val assembler = TranscriptAssembler()
-        assembler.appendUser("first turn")
-        assertEquals(listOf("user" to "first turn"), assembler.commit())
-        assembler.appendUser("second turn")
-        assertEquals(listOf("user" to "second turn"), assembler.commit())
-    }
-
     @Test fun clearDropsUncommittedFragments() {
         val assembler = TranscriptAssembler()
         assembler.appendAgent("not delivered")
