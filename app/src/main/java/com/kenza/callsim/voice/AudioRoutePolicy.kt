@@ -27,22 +27,23 @@ object AudioRoutePolicy {
 enum class PlaybackQueueAction {
     ACCEPT,
     WARN,
-    RESYNC,
 }
 
-/** Pure queue arithmetic shared by the Android player and JVM tests. */
+/**
+ * Pure queue arithmetic shared by the Android player and JVM tests.
+ *
+ * A backlog is diagnostic information, not permission to delete valid speech.
+ * The player may flush only after an explicit provider interruption.
+ */
 class PlaybackQueuePolicy(
     private val sampleRate: Int,
-    private val maximumMs: Int = GeminiLiveTuning.MAX_PLAYBACK_QUEUE_MS,
-    private val hardLimitMs: Int = GeminiLiveTuning.HARD_PLAYBACK_QUEUE_MS,
+    private val warningMs: Int = GeminiLiveTuning.MAX_PLAYBACK_QUEUE_MS,
 ) {
-    private val warningBytes = bytesFor(maximumMs)
-    private val hardLimitBytes = bytesFor(hardLimitMs)
+    private val warningBytes = bytesFor(warningMs)
 
     init {
         require(sampleRate > 0) { "sampleRate must be positive" }
-        require(maximumMs > 0) { "maximumMs must be positive" }
-        require(hardLimitMs > maximumMs) { "hardLimitMs must exceed maximumMs" }
+        require(warningMs > 0) { "warningMs must be positive" }
     }
 
     fun durationMs(bytes: Int): Int =
@@ -50,19 +51,14 @@ class PlaybackQueuePolicy(
             (sampleRate.toLong() * AudioConfig.BYTES_PER_SAMPLE)).toInt()
 
     fun action(currentBytes: Int, incomingBytes: Int): PlaybackQueueAction {
-        val totalBytes = currentBytes.coerceAtLeast(0).toLong() + incomingBytes.coerceAtLeast(0).toLong()
-        return when {
-            totalBytes > hardLimitBytes -> PlaybackQueueAction.RESYNC
-            totalBytes > warningBytes -> PlaybackQueueAction.WARN
-            else -> PlaybackQueueAction.ACCEPT
-        }
+        val totalBytes = currentBytes.coerceAtLeast(0).toLong() +
+            incomingBytes.coerceAtLeast(0).toLong()
+        return if (totalBytes > warningBytes) PlaybackQueueAction.WARN
+        else PlaybackQueueAction.ACCEPT
     }
 
     fun accepts(currentBytes: Int, incomingBytes: Int): Boolean =
         action(currentBytes, incomingBytes) == PlaybackQueueAction.ACCEPT
-
-    fun exceedsHardLimit(currentBytes: Int, incomingBytes: Int): Boolean =
-        action(currentBytes, incomingBytes) == PlaybackQueueAction.RESYNC
 
     private fun bytesFor(durationMs: Int): Long =
         sampleRate.toLong() * AudioConfig.BYTES_PER_SAMPLE * durationMs / 1_000L
