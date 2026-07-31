@@ -184,7 +184,7 @@ class MicRecorder(
     }
 }
 
-/** Streams agent PCM to the phone audio route with a deliberately short queue. */
+/** Streams every valid agent PCM packet to the phone audio route in order. */
 interface PlaybackMetrics {
     fun onQueued(queueMs: Int) {}
     fun onOverflow() {}
@@ -283,7 +283,7 @@ class PcmPlayer(
                 }
                 synchronized(trackLock) {
                     if (running && item.epoch == queueEpoch.get()) {
-                        track?.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+                        writeFully(pcm, item.epoch)
                     }
                 }
                 if (item.epoch == queueEpoch.get()) {
@@ -301,13 +301,9 @@ class PcmPlayer(
     fun enqueue(pcm: ByteArray) {
         if (!running || pcm.isEmpty()) return
         val current = queuedBytes.get()
-        when (policy.action(current, pcm.size)) {
-            PlaybackQueueAction.ACCEPT -> Unit
-            PlaybackQueueAction.WARN -> metrics.onOverflow()
-            PlaybackQueueAction.RESYNC -> {
-                metrics.onOverflow()
-                flush()
-            }
+        if (policy.action(current, pcm.size) == PlaybackQueueAction.WARN) {
+            metrics.onOverflow()
+            Log.w(TAG, "playback backlog=${policy.durationMs(current + pcm.size)}ms; preserving queued speech")
         }
 
         val epoch = queueEpoch.get()
@@ -359,6 +355,27 @@ class PcmPlayer(
         worker?.join(500)
         worker = null
     }
+
+    /** Blocking mode should consume the whole slice, but loop defensively on short writes. */
+    private fun writeFully(pcm: ByteArray, epoch: Long) {
+        var offset = 0
+        while (running && itemIsCurrent(epoch) && offset < pcm.size) {
+            val currentTrack = track ?: return
+            val written = currentTrack.write(
+                pcm,
+                offset,
+                pcm.size - offset,
+                AudioTrack.WRITE_BLOCKING,
+            )
+            if (written <= 0) {
+                Log.e(TAG, "AudioTrack write failed code=$written remaining=${pcm.size - offset}")
+                return
+            }
+            offset += written
+        }
+    }
+
+    private fun itemIsCurrent(epoch: Long): Boolean = epoch == queueEpoch.get()
 
     companion object
 }
