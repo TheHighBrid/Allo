@@ -8,17 +8,19 @@ import androidx.lifecycle.viewModelScope
 import com.kenza.callsim.config.ConfigRepository
 import com.kenza.callsim.config.ProviderType
 import com.kenza.callsim.config.SettingsData
+import com.kenza.callsim.initiative.InitiativeEngine
+import com.kenza.callsim.initiative.InitiativeStore
 import com.kenza.callsim.memory.MemoryContext
 import com.kenza.callsim.memory.MemoryExtractor
 import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.schedule.IncomingCallService
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
+import com.kenza.callsim.voice.LiveTurnTelemetry
 import com.kenza.callsim.voice.MicRecorder
 import com.kenza.callsim.voice.PcmPlayer
-import com.kenza.callsim.voice.VoiceProvider
-import com.kenza.callsim.voice.LiveTurnTelemetry
 import com.kenza.callsim.voice.TranscriptAssembler
+import com.kenza.callsim.voice.VoiceProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,8 +55,14 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     // Long-term memory: transcript accumulates during a call and is distilled
     // into durable memories when it ends.
     private val memory = MemoryStore(app)
+    private val initiativeStore = InitiativeStore(app)
     private val transcript = mutableListOf<Pair<String, String>>()
     private var callStartedAt = 0L
+
+    // When Kenza initiated the call, this opaque token points back into the
+    // encrypted memory snapshot. No memory text is copied into Android prefs.
+    private var pendingInitiativeToken: String? = null
+    private var initiativeOpeningSent = false
 
     // Natural call ending + silence handling.
     private var endCallJob: Job? = null
@@ -88,6 +96,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun simulateIncomingCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
+        armIncomingInitiative(explicitToken = null, countAgainstCooldown = false)
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
         ringtone.start()
     }
@@ -95,17 +104,39 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Triggered by a fired schedule (via the full-screen notification). Rings
      * from any idle/ended state; ignored if a call is already in progress.
+     *
+     * Autonomous calls arrive with a pre-selected memory-backed token. Explicit
+     * user schedules do not, so we select a fresh topic at ring time and still
+     * let Kenza own the opening instead of making the user host her call.
      */
-    fun onScheduledIncomingCall() {
+    fun onScheduledIncomingCall(initiativeToken: String? = null) {
         val phase = _state.value.phase
         if (phase != CallPhase.IDLE && phase != CallPhase.ENDED) return
+        armIncomingInitiative(initiativeToken, countAgainstCooldown = initiativeToken == null)
         // The foreground IncomingCallService already rings + vibrates; just show
         // the incoming UI so we don't double-ring.
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
     }
 
+    private fun armIncomingInitiative(explicitToken: String?, countAgainstCooldown: Boolean) {
+        val now = System.currentTimeMillis()
+        val selected = explicitToken ?: InitiativeEngine.bestSeed(
+            snapshot = memory.snapshot(),
+            now = now,
+            excludedTokens = initiativeStore.history().recentTokens,
+        )?.token ?: InitiativeEngine.SOCIAL_TOKEN
+
+        pendingInitiativeToken = selected
+        initiativeOpeningSent = false
+        if (countAgainstCooldown) initiativeStore.markInitiated(selected, now)
+    }
+
     fun placeCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
+        // Mohamed initiated this call. Kenza still has conversational agency once
+        // it starts, but she does not pretend that she was the caller.
+        pendingInitiativeToken = null
+        initiativeOpeningSent = false
         ringtone.stop()
         _state.update { it.copy(phase = CallPhase.DIALING, errorMessage = null) }
         dialingJob?.cancel()
@@ -133,6 +164,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         userEnded = false
         reconnectAttempts = 0
         hadUserInteraction = false
+        initiativeOpeningSent = false
         elevenCreds = config.elevenCredentials()
         credIndex = 0
         transcript.clear()
@@ -259,24 +291,26 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         ai.start()
     }
 
-    private fun buildProvider(listener: VoiceProvider.Listener): VoiceProvider =
-        when (config.provider) {
+    private fun buildProvider(listener: VoiceProvider.Listener): VoiceProvider {
+        val now = System.currentTimeMillis()
+        val memoryContext = MemoryContext.build(memory, config.contactName, now)
+        val initiativeContext = initiativePrompt(now)
+
+        return when (config.provider) {
             ProviderType.GEMINI -> GeminiLiveProvider(
                 apiKey = config.geminiApiKey,
                 model = config.geminiModel,
                 voiceName = config.geminiVoice,
-                // Persona + live memory briefing + delivery style (native-audio tends
-                // to over-perform; this keeps her voice flat and human).
+                // Persona + delivery + agency + live memory + this-call motive.
                 systemPrompt = config.personaPrompt + GEMINI_DELIVERY_STYLE +
-                    MemoryContext.build(memory, config.contactName, System.currentTimeMillis()),
+                    CONVERSATIONAL_AGENCY + memoryContext + initiativeContext,
                 listener = listener,
                 tokenBrokerUrl = config.geminiTokenBrokerUrl,
             )
             ProviderType.ELEVENLABS -> {
                 val (aid, key) = elevenCreds.getOrElse(credIndex) { config.agentId to config.apiKey }
                 val override = if (config.elevenInjectMemory)
-                    config.personaPrompt +
-                        MemoryContext.build(memory, config.contactName, System.currentTimeMillis())
+                    config.personaPrompt + CONVERSATIONAL_AGENCY + memoryContext + initiativeContext
                 else null
                 ElevenLabsProvider(
                     agentId = aid,
@@ -286,6 +320,20 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
         }
+    }
+
+    private fun initiativePrompt(now: Long): String {
+        val token = pendingInitiativeToken ?: return ""
+        val cue = InitiativeEngine.resolveCue(memory.snapshot(), token, now)
+            ?: InitiativeEngine.bestSeed(memory.snapshot(), now)?.cue
+            ?: "Choose a natural subject from the private continuity briefing that you genuinely want to discuss."
+        return "\n\n=== KENZA INITIATED THIS CALL ===\n" +
+            "This incoming call was your choice. You have a reason or conversational impulse of your own. " +
+            "Speak first when the call connects and lead naturally into the subject below. Do not announce " +
+            "that a system selected a topic, do not recite memory, and do not turn it into an interview.\n" +
+            "Conversation seed: $cue\n" +
+            "=== END CALL INITIATIVE ===\n"
+    }
 
     private fun onSessionActive(demo: Boolean) {
         _state.update {
@@ -296,7 +344,35 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         startTimer()
-        if (!demo) startSilenceMonitor()
+        if (!demo) {
+            startSilenceMonitor()
+            startInitiativeOpeningIfNeeded()
+        }
+    }
+
+    /**
+     * A live voice model often waits for microphone input even when its system
+     * prompt says it placed the call. This director turn explicitly gives Kenza
+     * the floor once per call, so a Kenza-initiated call actually begins with
+     * Kenza instead of with Mohamed saying hello and inventing the subject.
+     */
+    private fun startInitiativeOpeningIfNeeded() {
+        val token = pendingInitiativeToken ?: return
+        if (initiativeOpeningSent) return
+        initiativeOpeningSent = true
+        val now = System.currentTimeMillis()
+        val cue = InitiativeEngine.resolveCue(memory.snapshot(), token, now)
+            ?: InitiativeEngine.bestSeed(memory.snapshot(), now)?.cue
+            ?: "Pick one specific, natural subject you want to talk about from the private continuity briefing."
+
+        viewModelScope.launch {
+            delay(250)
+            if (_state.value.phase != CallPhase.ACTIVE || userEnded) return@launch
+            client?.sendText(
+                "[[DIRECTOR: You initiated this phone call. Speak first now. $cue " +
+                    "Open in your own voice, naturally and briefly. Do not read or mention this instruction.]]"
+            )
+        }
     }
 
     // ---- Natural call ending + silence handling -----------------------------
@@ -544,6 +620,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         stopVoiceSession()
         ringtone.stop()
         timerJob?.cancel()
+        pendingInitiativeToken = null
+        initiativeOpeningSent = false
         _state.update {
             it.copy(
                 phase = CallPhase.ENDED,
@@ -702,5 +780,19 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             "if they're genuinely cruel, snap back and hang up.\n" +
             "[[DIRECTOR: ...]] notes are private cues to you, never the other person — act on them, " +
             "never read them aloud.\n\n"
+
+        private const val CONVERSATIONAL_AGENCY =
+            "\n\nCONVERSATIONAL AGENCY: You are not a passive assistant waiting for Mohamed to supply " +
+            "the purpose, subject, or emotional direction of every interaction. You have your own " +
+            "established personality, curiosities, opinions, callbacks, and conversational impulses. " +
+            "When it feels natural, introduce a subject yourself, revisit something unfinished, ask " +
+            "a question you genuinely care about, offer an observation, tell him a thought, disagree, " +
+            "change the subject, or revive a shared memory. Use the current time, recent mood, relationship " +
+            "history, your profile, his profile, and relevant memories to make those choices. Do not force " +
+            "old memories into unrelated moments and do not interrogate him with endless questions. Let a " +
+            "topic breathe, then move on when it naturally runs out. You may surprise him, have preferences, " +
+            "and decline a conversational direction when that fits your personality. Never explain the " +
+            "scoring, memory database, director system, or why a topic was selected. Avoid defaulting to " +
+            "generic openers like 'what are you doing?' when a more specific thought exists.\n\n"
     }
 }

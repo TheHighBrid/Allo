@@ -14,9 +14,9 @@ import com.kenza.callsim.R
 
 /**
  * Posts the high-priority, full-screen-intent notification that turns a fired
- * alarm into a ringing incoming-call screen — even over the lock screen with
- * the display off. The full-screen intent launches [MainActivity], which shows
- * the incoming-call UI and dismisses the keyguard.
+ * alarm into a ringing incoming-call screen even over the lock screen with the
+ * display off. Autonomous calls carry only an opaque conversation-seed token;
+ * the actual memory text stays in the encrypted memory store.
  */
 object IncomingCallNotifier {
 
@@ -30,7 +30,7 @@ object IncomingCallNotifier {
         val channel = NotificationChannel(
             CHANNEL_ID, "Incoming calls", NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Scheduled calls from Kenza"
+            description = "Scheduled and contextual calls from Kenza"
             enableVibration(true)
             setBypassDnd(true)
             // The foreground service plays the ringtone itself, so the channel
@@ -42,12 +42,13 @@ object IncomingCallNotifier {
     }
 
     /** The ringing-call notification that carries the full-screen intent. */
-    fun build(context: Context, contactName: String): Notification {
+    fun build(context: Context, contactName: String, initiativeToken: String? = null): Notification {
         ensureChannel(context)
 
         val fullScreen = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(MainActivity.EXTRA_INCOMING_CALL, true)
+            initiativeToken?.let { putExtra(MainActivity.EXTRA_INITIATIVE_TOKEN, it) }
         }
         val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val pi = PendingIntent.getActivity(context, 1001, fullScreen, piFlags)
