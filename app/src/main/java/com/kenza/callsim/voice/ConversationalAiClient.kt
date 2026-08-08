@@ -163,6 +163,7 @@ class ElevenLabsProvider(
         s.send("""{"user_audio_chunk":"$b64"}""")
     }
 
+    // ElevenLabs treats user_message as a text turn and responds with normal agent audio.
     override fun sendText(text: String) {
         if (text.isBlank()) return
         socket?.send(
