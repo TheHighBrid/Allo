@@ -65,16 +65,16 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * When launched by a fired schedule (via the full-screen intent), wake and
-     * unlock the screen so the ringing incoming-call UI appears over the lock
-     * screen, then drive the ViewModel into its INCOMING state.
+     * When launched by a fired schedule (via the full-screen notification), wake
+     * and unlock the screen so the ringing incoming-call UI appears over the lock
+     * screen, then preserve the optional autonomous conversation-seed token.
      */
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_INCOMING_CALL, false) != true) return
 
         showWhenLockedAndTurnScreenOn()
         IncomingCallNotifier.cancel(this)
-        viewModel.onScheduledIncomingCall()
+        viewModel.onScheduledIncomingCall(intent.getStringExtra(EXTRA_INITIATIVE_TOKEN))
     }
 
     private fun showWhenLockedAndTurnScreenOn() {
@@ -95,5 +95,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_INCOMING_CALL = "extra_incoming_call"
+        const val EXTRA_INITIATIVE_TOKEN = "extra_initiative_token"
     }
 }
