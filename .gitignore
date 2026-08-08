@@ -16,5 +16,7 @@ app/build/
 
 # Signing — NEVER commit these
 keystore.properties
+.ci-signing/
 *.jks
 *.keystore
+*.p12
