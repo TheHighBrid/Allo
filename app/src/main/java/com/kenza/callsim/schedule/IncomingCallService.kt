@@ -29,7 +29,8 @@ class IncomingCallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val name = ConfigRepository(this).contactName
-        val notif = IncomingCallNotifier.build(this, name)
+        val initiativeToken = intent?.getStringExtra(EXTRA_INITIATIVE_TOKEN)
+        val notif = IncomingCallNotifier.build(this, name, initiativeToken)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -68,8 +69,12 @@ class IncomingCallService : Service() {
     }
 
     companion object {
-        fun start(context: Context) {
-            val i = Intent(context, IncomingCallService::class.java)
+        private const val EXTRA_INITIATIVE_TOKEN = "initiative_token"
+
+        fun start(context: Context, initiativeToken: String? = null) {
+            val i = Intent(context, IncomingCallService::class.java).apply {
+                initiativeToken?.let { putExtra(EXTRA_INITIATIVE_TOKEN, it) }
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 context.startForegroundService(i)
             else context.startService(i)
