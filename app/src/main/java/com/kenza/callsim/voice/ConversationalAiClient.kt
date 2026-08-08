@@ -163,6 +163,16 @@ class ElevenLabsProvider(
         s.send("""{"user_audio_chunk":"$b64"}""")
     }
 
+    override fun sendText(text: String) {
+        if (text.isBlank()) return
+        socket?.send(
+            JSONObject()
+                .put("type", "user_message")
+                .put("text", text)
+                .toString()
+        )
+    }
+
     override fun stop() {
         closedByUser = true
         runCatching { socket?.close(1000, "bye") }
