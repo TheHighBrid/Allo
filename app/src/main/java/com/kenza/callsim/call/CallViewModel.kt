@@ -64,12 +64,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingInitiativeToken: String? = null
     private var initiativeOpeningSent = false
 
-    // Natural call ending + silence handling.
+    // Natural call ending.
     private var endCallJob: Job? = null
-    private var silenceJob: Job? = null
-    private var lastActivityAt = 0L   // last time EITHER of them spoke
-    private var lastNudgeAt = 0L
-    private var nudgeCount = 0
 
     private var timerJob: Job? = null
     private var speakingResetJob: Job? = null
@@ -248,7 +244,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             }
             override fun onAgentAudio(pcm: ByteArray) {
                 mic?.agentSpeaking = true
-                lastActivityAt = System.currentTimeMillis()
                 telemetry.modelAudio()
                 player?.enqueue(pcm)
                 markSpeaking()
@@ -257,14 +252,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 // Real two-way interaction — a genuine call, so allow further reconnects.
                 hadUserInteraction = true
                 transcriptAssembler.appendUser(text)
-                lastActivityAt = System.currentTimeMillis()
-                nudgeCount = 0
                 onConversationLine(fromUser = true, text = text)
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
             }
             override fun onAgentText(text: String) {
                 transcriptAssembler.appendAgent(text)
-                lastActivityAt = System.currentTimeMillis()
                 onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
             }
@@ -344,10 +336,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         startTimer()
-        if (!demo) {
-            startSilenceMonitor()
-            startInitiativeOpeningIfNeeded()
-        }
+        if (!demo) startInitiativeOpeningIfNeeded()
     }
 
     /**
@@ -375,7 +364,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ---- Natural call ending + silence handling -----------------------------
+    // ---- Natural call ending -------------------------------------------------
 
     private fun onConversationLine(fromUser: Boolean, text: String) {
         when {
@@ -418,54 +407,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             "were done", "don't call me", "dont call me", "lose my number",
             "leave me alone", "forget it", "don't ever", "dont ever", "i'm out", "im out"
         ).any { t.contains(it) }
-    }
-
-    /**
-     * Real conversations aren't silent for minutes. If the user goes quiet, nudge
-     * Kenza to check in, escalate if it continues, and eventually let her hang up.
-     */
-    private fun startSilenceMonitor() {
-        silenceJob?.cancel()
-        lastActivityAt = System.currentTimeMillis()
-        lastNudgeAt = 0L
-        nudgeCount = 0
-        silenceJob = viewModelScope.launch {
-            while (true) {
-                delay(3000)
-                if (_state.value.phase != CallPhase.ACTIVE) continue
-                if (endCallJob != null) continue                       // already wrapping up
-                if (_state.value.activity == AgentActivity.SPEAKING) continue
-                val now = System.currentTimeMillis()
-                // Silence = neither of them has spoken. Measured from the last
-                // utterance by EITHER party, so she never checks in the instant
-                // she finishes her own sentence.
-                val quiet = now - lastActivityAt
-                if (now - lastNudgeAt < 12_000) continue               // long cooldown after a nudge
-                when {
-                    nudgeCount == 0 && quiet > 16_000 -> nudgeSilence(1)
-                    nudgeCount == 1 && quiet > 35_000 -> nudgeSilence(2)
-                    nudgeCount == 2 && quiet > 55_000 -> nudgeSilence(3)
-                    nudgeCount >= 3 && quiet > 80_000 -> {
-                        userEnded = true
-                        finishCall(null)                               // she gives up on the silence
-                    }
-                }
-            }
-        }
-    }
-
-    private fun nudgeSilence(level: Int) {
-        lastNudgeAt = System.currentTimeMillis()
-        nudgeCount = level
-        val cue = when (level) {
-            1 -> "The other person has gone quiet and hasn't said anything for a bit. React " +
-                "naturally — casually check if they're still there or gently poke at the silence."
-            2 -> "They're still not responding. Get a little more bothered or teasing about how " +
-                "quiet they are, like a real girlfriend would."
-            else -> "They've been silent a long time. You're kind of over it — get one reaction " +
-                "out of them, or tell them you're gonna let them go / hang up soon."
-        }
-        client?.sendText("[[DIRECTOR: $cue Do NOT read this instruction aloud.]]")
     }
 
     private fun markSpeaking() {
@@ -669,7 +610,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun stopVoiceSession() {
-        silenceJob?.cancel(); silenceJob = null
         endCallJob?.cancel(); endCallJob = null
         mic?.stop(); mic = null
         client?.stop(); client = null
@@ -772,6 +712,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             "Never manufacture fillers, breaths, or background events. " +
             "Do not start every reply with 'hey' or 'how about you'. If the user says 'hey how " +
             "are you', a natural reply is 'i'm good baby, what about you' — short and instant.\n" +
+            "PAUSES: brief or extended response pauses are normal in a phone conversation. Never comment on " +
+            "silence, ask whether Mohamed is still there, say he went quiet, or inject a presence check solely " +
+            "because he has not spoken yet. Wait for his response without filling the gap.\n" +
             "EMOTION: react to the actual sentence with small real cues (soft laugh, teasing, " +
             "warmth, mild attitude) but do not overact. Match their cadence and energy.\n" +
             "MEMORY: you keep long-term memory of your calls and are briefed each call, so if they " +
