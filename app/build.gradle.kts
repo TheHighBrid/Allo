@@ -13,13 +13,19 @@ val localProps = Properties().apply {
 fun secret(key: String): String = (localProps.getProperty(key) ?: "").trim()
 
 // Release signing config is read from keystore.properties (git-ignored).
-// See LAUNCH.md. If absent, release builds fall back to the debug key so the
-// project still assembles.
+// Release APKs intentionally have NO debug-key fallback. A release build without
+// the permanent Allo keystore must fail instead of producing an APK that cannot
+// update an existing installation.
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val hasReleaseKeystore = keystoreProps.getProperty("storeFile")?.isNotBlank() == true
+val buildVersionCode = providers.gradleProperty("ALLO_VERSION_CODE")
+    .orNull
+    ?.toIntOrNull()
+    ?.takeIf { it > 0 }
+    ?: 29
 
 android {
     namespace = "com.kenza.callsim"
@@ -29,7 +35,7 @@ android {
         applicationId = "com.kenza.callsim"
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
+        versionCode = buildVersionCode
         versionName = "3.9.7"
 
         // Pulled from local.properties (see README). Empty by default.
@@ -42,8 +48,8 @@ android {
     }
 
     signingConfigs {
-        if (hasReleaseKeystore) {
-            create("release") {
+        create("release") {
+            if (hasReleaseKeystore) {
                 storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
@@ -62,10 +68,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (hasReleaseKeystore)
-                signingConfigs.getByName("release")
-            else
-                signingConfigs.getByName("debug")
+            // Never fall back to signingConfigs.debug. If keystore.properties is
+            // absent/incomplete, assembleRelease must fail at signing time.
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
