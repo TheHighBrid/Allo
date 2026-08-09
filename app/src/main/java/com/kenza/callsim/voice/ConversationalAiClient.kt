@@ -11,7 +11,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * ElevenLabs Conversational AI provider (premium option — Kenza's cloned voice).
+ * ElevenLabs Conversational AI provider (premium option, Kenza's cloned voice).
  *
  * The agent bundles speech-to-text, the LLM brain (GPT/Gemini configured in the
  * ElevenLabs dashboard), and cloned-voice TTS. We stream mic PCM up and play the
@@ -32,7 +32,7 @@ class ElevenLabsProvider(
         private const val TAG = "ElevenLabsProvider"
         private const val BASE = "wss://api.elevenlabs.io/v1/convai/conversation"
         private const val SIGNED_URL =
-            "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url"
+            "https://api.elevenlabs.io/v1/convai/conversation/get-signed-url"
     }
 
     private val http = OkHttpClient.Builder()
@@ -43,35 +43,74 @@ class ElevenLabsProvider(
     @Volatile private var socket: WebSocket? = null
     @Volatile private var closedByUser = false
     @Volatile private var outputIsMulaw = false
+    @Volatile private var sessionReady = false
+    @Volatile private var publicFallbackHint: String? = null
 
     override fun start() {
         closedByUser = false
-        if (agentId.trim().isEmpty()) {
+        sessionReady = false
+        publicFallbackHint = null
+
+        val aid = agentId.trim()
+        val key = apiKey.trim()
+        if (aid.isEmpty()) {
             listener.onClosed("No ElevenLabs Agent ID set. Open Settings to add one.", fatal = true)
             return
         }
-        // Private agents need a signed URL; do that off the main thread.
+
+        // Public agents connect directly. Private agents need a signed URL.
+        // A dashboard Key ID is not an API secret and must never be sent as
+        // xi-api-key. If one is present, try the public route instead so a public
+        // agent still works and only require the sk_ secret when authorization is
+        // actually needed.
         Thread {
             val url = try {
-                if (apiKey.trim().isNotEmpty()) fetchSignedUrl() else "$BASE?agent_id=$agentId"
+                when (ElevenLabsAuth.classifyApiKey(key)) {
+                    ElevenLabsAuth.ApiKeyKind.EMPTY -> publicUrl(aid)
+                    ElevenLabsAuth.ApiKeyKind.KEY_ID_OR_INVALID -> {
+                        publicFallbackHint = ElevenLabsAuth.SECRET_KEY_HINT
+                        publicUrl(aid)
+                    }
+                    ElevenLabsAuth.ApiKeyKind.SECRET -> {
+                        try {
+                            fetchSignedUrl(aid, key)
+                        } catch (e: InvalidElevenLabsApiKeyException) {
+                            // The key may be stale while the agent itself is public.
+                            // Recover by trying the documented unauthenticated public
+                            // WebSocket path before ending the call.
+                            Log.w(TAG, "ElevenLabs API key rejected; trying public agent connection")
+                            publicFallbackHint = ElevenLabsAuth.SECRET_KEY_HINT
+                            publicUrl(aid)
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "signed url failed", e)
-                listener.onClosed("Could not start session: ${e.message}", fatal = true)
+                listener.onClosed(sanitizeStartFailure(e), fatal = true)
                 return@Thread
             }
             connect(url)
         }.start()
     }
 
-    private fun fetchSignedUrl(): String {
+    private fun publicUrl(aid: String): String = "$BASE?agent_id=$aid"
+
+    private fun fetchSignedUrl(aid: String, key: String): String {
         val req = Request.Builder()
-            .url("$SIGNED_URL?agent_id=$agentId")
-            .header("xi-api-key", apiKey.trim())
+            .url("$SIGNED_URL?agent_id=$aid")
+            .header("xi-api-key", key)
             .get()
             .build()
         http.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) error("HTTP ${resp.code}: $body")
+            if (!resp.isSuccessful) {
+                if (ElevenLabsAuth.isInvalidApiKeyFailure(body)) {
+                    throw InvalidElevenLabsApiKeyException()
+                }
+                val detail = extractApiError(body)
+                val suffix = if (detail.isBlank()) "" else ": $detail"
+                error("ElevenLabs signed URL request failed (HTTP ${resp.code})$suffix")
+            }
             return JSONObject(body).getString("signed_url")
         }
     }
@@ -93,18 +132,30 @@ class ElevenLabsProvider(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "socket closed $code $reason")
-                if (!closedByUser) listener.onClosed(
-                    "closed ($code${if (reason.isNotBlank()) " $reason" else ""})",
-                    fatal = isFatal(code, reason)
-                )
+                if (!closedByUser) {
+                    val fallback = publicFallbackHint
+                    val resolvedReason = if (
+                        !sessionReady && fallback != null &&
+                        ElevenLabsAuth.isLikelyAuthorizationFailure(code, reason)
+                    ) fallback else "closed ($code${if (reason.isNotBlank()) " $reason" else ""})"
+                    listener.onClosed(
+                        resolvedReason,
+                        fatal = if (resolvedReason === fallback) true else isFatal(code, reason)
+                    )
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "socket failure", t)
                 if (closedByUser) return
                 val code = response?.code ?: 0
-                val detail = response?.let { "HTTP $code" } ?: t.message ?: "connection failed"
-                listener.onClosed(detail, fatal = code in 400..499)
+                val fallback = publicFallbackHint
+                val rawDetail = response?.let { "HTTP $code" } ?: t.message ?: "connection failed"
+                val detail = if (
+                    !sessionReady && fallback != null &&
+                    ElevenLabsAuth.isLikelyAuthorizationFailure(code, rawDetail)
+                ) fallback else rawDetail
+                listener.onClosed(detail, fatal = code in 400..499 || detail === fallback)
             }
         })
     }
@@ -122,6 +173,8 @@ class ElevenLabsProvider(
         val json = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (json.optString("type")) {
             "conversation_initiation_metadata" -> {
+                sessionReady = true
+                publicFallbackHint = null
                 val fmt = json.optJSONObject("conversation_initiation_metadata_event")
                     ?.optString("agent_output_audio_format").orEmpty()
                 outputIsMulaw = fmt.startsWith("ulaw", ignoreCase = true)
@@ -187,7 +240,21 @@ class ElevenLabsProvider(
     private fun isFatal(code: Int, reason: String): Boolean {
         val r = reason.lowercase()
         return code == 1008 || r.contains("quota") || r.contains("credit") ||
-            r.contains("unauthorized") || r.contains("limit") || r.contains("exceeded")
+            r.contains("unauthorized") || r.contains("limit") || r.contains("exceeded") ||
+            r.contains("authentication") || r.contains("authorization")
+    }
+
+    private fun sanitizeStartFailure(e: Exception): String = when (e) {
+        is InvalidElevenLabsApiKeyException -> ElevenLabsAuth.SECRET_KEY_HINT
+        else -> e.message?.takeIf { it.isNotBlank() } ?: "Could not start ElevenLabs session."
+    }
+
+    private fun extractApiError(body: String): String {
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: return ""
+        val detail = root.optJSONObject("detail")
+        return detail?.optString("message")?.takeIf { it.isNotBlank() }
+            ?: root.optString("message").takeIf { it.isNotBlank() }
+            ?: ""
     }
 
     /** Decode 8-bit G.711 µ-law to signed 16-bit little-endian PCM. */
@@ -206,4 +273,6 @@ class ElevenLabsProvider(
         }
         return out
     }
+
+    private class InvalidElevenLabsApiKeyException : Exception(ElevenLabsAuth.SECRET_KEY_HINT)
 }
