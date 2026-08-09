@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build installable signed APK
+    name: Validate app and build installable signed APK
     runs-on: ubuntu-latest
 
     steps:
@@ -45,7 +45,17 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
+      # PRs must be able to prove code correctness without access to the release
+      # signing secret. The permanent signer is only needed when producing the
+      # canonical installable artifact on main or via workflow_dispatch.
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build debug APK for compile validation
+        run: ./gradlew assembleDebug
+
       - name: Restore permanent Allo signing key
+        if: github.event_name != 'pull_request'
         env:
           ALLO_SIGNING_BUNDLE: ${{ secrets.ALLO_SIGNING_BUNDLE }}
         run: |
@@ -61,13 +71,8 @@ jobs:
           chmod 600 keystore.properties .ci-signing/allo-update.p12
           rm -f /tmp/allo-signing-bundle.zip
 
-      - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
-
-      - name: Build debug APK for compile validation
-        run: ./gradlew assembleDebug
-
       - name: Build canonical signed update APK
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           VERSION_CODE=$((10000 + GITHUB_RUN_NUMBER))
@@ -75,6 +80,7 @@ jobs:
           ./gradlew assembleRelease -PALLO_VERSION_CODE="$VERSION_CODE"
 
       - name: Verify package, version and signing certificate
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
@@ -120,6 +126,7 @@ jobs:
             "$PACKAGE" "$VERSION" "$EXPECTED" > dist/update-metadata.txt
 
       - name: Upload only the installable update APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v6
         with:
           name: allo-installable-update
