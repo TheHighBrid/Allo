@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -20,6 +22,7 @@ import com.kenza.callsim.call.CallPhase
 import com.kenza.callsim.call.CallViewModel
 import com.kenza.callsim.ui.screens.HomeScreen
 import com.kenza.callsim.ui.screens.InCallScreen
+import com.kenza.callsim.ui.screens.IncomingCallBanner
 import com.kenza.callsim.ui.screens.IncomingCallScreen
 import com.kenza.callsim.ui.screens.MemoryScreen
 import com.kenza.callsim.ui.screens.ScheduleScreen
@@ -28,6 +31,9 @@ import com.kenza.callsim.ui.screens.SettingsScreen
 @Composable
 fun CallApp(
     viewModel: CallViewModel,
+    incomingCallPresentation: IncomingCallPresentation,
+    onSimulateIncoming: () -> Unit,
+    onCallFinished: () -> Unit,
     onNeedMicPermission: () -> Unit
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -72,18 +78,44 @@ fun CallApp(
                 onDigit = viewModel::appendDigit,
                 onDelete = viewModel::deleteDigit,
                 onCall = viewModel::placeCall,
-                onSimulateIncoming = viewModel::simulateIncomingCall,
+                onSimulateIncoming = onSimulateIncoming,
                 onOpenSettings = { showSettings = true },
                 onOpenSchedule = { showSchedule = true },
                 onOpenMemory = { showMemory = true },
                 modifier = Modifier
             )
 
-            CallPhase.INCOMING -> IncomingCallScreen(
-                state = state,
-                onAccept = viewModel::answerIncoming,
-                onDecline = viewModel::declineIncoming
-            )
+            CallPhase.INCOMING -> when (incomingCallPresentation) {
+                IncomingCallPresentation.LOCKED_FULL_SCREEN -> IncomingCallScreen(
+                    state = state,
+                    onAccept = viewModel::answerIncoming,
+                    onDecline = {
+                        viewModel.declineIncoming()
+                        onCallFinished()
+                    }
+                )
+
+                IncomingCallPresentation.UNLOCKED_BANNER -> Box(Modifier.fillMaxSize()) {
+                    // iPhone keeps the current app visible and places the incoming
+                    // call on top instead of replacing the whole screen.
+                    HomeScreen(
+                        state = state,
+                        onDigit = {},
+                        onDelete = {},
+                        onCall = {},
+                        onSimulateIncoming = {},
+                        onOpenSettings = {},
+                        onOpenSchedule = {},
+                        onOpenMemory = {},
+                        modifier = Modifier
+                    )
+                    IncomingCallBanner(
+                        state = state,
+                        onAccept = viewModel::answerIncoming,
+                        onDecline = viewModel::declineIncoming
+                    )
+                }
+            }
 
             else -> InCallScreen(
                 state = state,
@@ -91,7 +123,10 @@ fun CallApp(
                 onToggleSpeaker = viewModel::toggleSpeaker,
                 onToggleKeypad = viewModel::toggleKeypad,
                 onKeypadKey = viewModel::pressKeypadKey,
-                onEndCall = viewModel::endCall
+                onEndCall = {
+                    viewModel.endCall()
+                    onCallFinished()
+                }
             )
         }
     }
