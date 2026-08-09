@@ -136,11 +136,12 @@ fun SettingsScreen(
             Field("Agent ID", agentId, { agentId = it },
                 "ElevenLabs Conversational AI agent id",
                 "Only required when you deliberately choose the optional ElevenLabs engine.")
-            Field("ElevenLabs API key (optional)", elevenKey, { elevenKey = it },
-                "Only for a PRIVATE agent", "Leave blank if your agent is public.")
+            Field("ElevenLabs secret API key (private agents only)", elevenKey, { elevenKey = it },
+                "sk_...",
+                "Leave blank for a public agent. For a private agent, paste the secret key shown when it was created or rotated. It starts with sk_. Do not paste the Key ID.")
             Field("Backup keys — optional failover", backups, { backups = it },
-                "agentId, apiKey\nagentId, apiKey",
-                "Optional ElevenLabs-only failover. This is not used during normal Gemini calls.",
+                "agentId, sk_...\nagentId, sk_...",
+                "Each private-agent backup needs its secret sk_ key, not the dashboard Key ID. Public-agent backups should not need a key.",
                 singleLine = false)
             Spacer(Modifier.height(4.dp))
             Text("Voice ID: ${voiceId.ifEmpty { "—" }}", color = IOSColors.SecondaryLabel, fontSize = 12.sp)
