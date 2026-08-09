@@ -14,6 +14,7 @@ on:
       - "settings.gradle*"
       - "gradle.properties"
       - ".github/workflows/android-apk.yml"
+      - "signing/**"
   workflow_dispatch:
 
 permissions:
@@ -25,7 +26,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug and release APKs
+    name: Build installable signed APK
     runs-on: ubuntu-latest
 
     steps:
@@ -44,25 +45,86 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
+      - name: Restore permanent Allo signing key
+        env:
+          ALLO_SIGNING_BUNDLE: ${{ secrets.ALLO_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALLO_SIGNING_BUNDLE:-}" ]; then
+            echo "::error::Repository secret ALLO_SIGNING_BUNDLE is missing. Refusing to create a release APK with a temporary/debug signer."
+            exit 1
+          fi
+          printf '%s' "$ALLO_SIGNING_BUNDLE" | base64 --decode > /tmp/allo-signing-bundle.zip
+          unzip -q /tmp/allo-signing-bundle.zip -d .
+          test -f keystore.properties
+          test -f .ci-signing/allo-update.p12
+          chmod 600 keystore.properties .ci-signing/allo-update.p12
+          rm -f /tmp/allo-signing-bundle.zip
+
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
-      - name: Build debug APK
+      - name: Build debug APK for compile validation
         run: ./gradlew assembleDebug
 
-      - name: Build release APK
-        run: ./gradlew assembleRelease
+      - name: Build canonical signed update APK
+        run: |
+          set -euo pipefail
+          VERSION_CODE=$((10000 + GITHUB_RUN_NUMBER))
+          echo "ALLO_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          ./gradlew assembleRelease -PALLO_VERSION_CODE="$VERSION_CODE"
 
-      - name: Upload debug APK
+      - name: Verify package, version and signing certificate
+        run: |
+          set -euo pipefail
+          RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          test -n "$RELEASE_APK"
+
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+
+          "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" | tee /tmp/signing-report.txt
+
+          EXPECTED="$(tr -d ':[:space:]' < signing/allo-update-cert.sha256 | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$RELEASE_APK" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ':[:space:]' \
+            | tr '[:lower:]' '[:upper:]')"
+
+          if [ -z "$ACTUAL" ] || [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::APK signing certificate mismatch. Expected $EXPECTED, got ${ACTUAL:-missing}."
+            exit 1
+          fi
+
+          BADGING="$("$AAPT" dump badging "$RELEASE_APK" | head -n 1)"
+          PACKAGE="$(printf '%s\n' "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
+          VERSION="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+
+          if [ "$PACKAGE" != "com.kenza.callsim" ]; then
+            echo "::error::Unexpected package id: $PACKAGE"
+            exit 1
+          fi
+          if [ "$VERSION" != "$ALLO_VERSION_CODE" ]; then
+            echo "::error::Unexpected versionCode: $VERSION (expected $ALLO_VERSION_CODE)"
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$RELEASE_APK" "dist/Allo-update-vc${ALLO_VERSION_CODE}.apk"
+          cp /tmp/signing-report.txt dist/signing-report.txt
+          printf 'package=%s\nversionCode=%s\ncertificateSha256=%s\n' \
+            "$PACKAGE" "$VERSION" "$EXPECTED" > dist/update-metadata.txt
+
+      - name: Upload only the installable update APK
         uses: actions/upload-artifact@v6
         with:
-          name: allo-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-
-      - name: Upload release APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: allo-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          name: allo-installable-update
+          path: |
+            dist/Allo-update-*.apk
+            dist/signing-report.txt
+            dist/update-metadata.txt
           if-no-files-found: error
