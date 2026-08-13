@@ -121,6 +121,7 @@ The raw transcript is then discarded. It is not retained as permanent memory.
 Memory is stored in an app-private encrypted file using AES-GCM with a key protected by Android Keystore.
 
 - Memory is not committed to GitHub
+- Android cloud/device backups are disabled so credentials and private context do not leave the device through OS backup
 - Raw transcripts are not permanently stored
 - Other ordinary apps cannot read the memory file
 - Existing older-format memories are migrated automatically
@@ -218,6 +219,7 @@ app/src/main/java/com/kenza/callsim/
 ```
 
 GitHub Actions runs unit tests and builds debug and release APK artifacts for pushes and pull requests affecting Android code.
+It also runs Android lint so correctness and security regressions are reported before an APK is published.
 
 ## Troubleshooting
 

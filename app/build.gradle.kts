@@ -12,6 +12,24 @@ val localProps = Properties().apply {
 }
 fun secret(key: String): String = (localProps.getProperty(key) ?: "").trim()
 
+// buildConfigField expects a complete Java string literal. Escaping here keeps
+// legitimate values containing quotes or backslashes from breaking generated
+// BuildConfig.java or changing the structure of the generated source.
+fun javaStringLiteral(value: String): String = buildString {
+    append('"')
+    value.forEach { char ->
+        when (char) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(char)
+        }
+    }
+    append('"')
+}
+
 // Release signing config is read from keystore.properties (git-ignored).
 // Release APKs intentionally have NO debug-key fallback. A release build without
 // the permanent Allo keystore must fail instead of producing an APK that cannot
@@ -39,12 +57,12 @@ android {
         versionName = "3.9.7"
 
         // Pulled from local.properties (see README). Empty by default.
-        buildConfigField("String", "ELEVENLABS_AGENT_ID", "\"${secret("ELEVENLABS_AGENT_ID")}\"")
-        buildConfigField("String", "ELEVENLABS_API_KEY", "\"${secret("ELEVENLABS_API_KEY")}\"")
-        buildConfigField("String", "ELEVENLABS_VOICE_ID", "\"${secret("ELEVENLABS_VOICE_ID")}\"")
-        buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
-        buildConfigField("String", "GEMINI_TOKEN_BROKER_URL", "\"${secret("GEMINI_TOKEN_BROKER_URL")}\"")
-        buildConfigField("String", "CONTACT_NAME", "\"${secret("CONTACT_NAME").ifEmpty { "Kenza" }}\"")
+        buildConfigField("String", "ELEVENLABS_AGENT_ID", javaStringLiteral(secret("ELEVENLABS_AGENT_ID")))
+        buildConfigField("String", "ELEVENLABS_API_KEY", javaStringLiteral(secret("ELEVENLABS_API_KEY")))
+        buildConfigField("String", "ELEVENLABS_VOICE_ID", javaStringLiteral(secret("ELEVENLABS_VOICE_ID")))
+        buildConfigField("String", "GEMINI_API_KEY", javaStringLiteral(secret("GEMINI_API_KEY")))
+        buildConfigField("String", "GEMINI_TOKEN_BROKER_URL", javaStringLiteral(secret("GEMINI_TOKEN_BROKER_URL")))
+        buildConfigField("String", "CONTACT_NAME", javaStringLiteral(secret("CONTACT_NAME").ifEmpty { "Kenza" }))
     }
 
     signingConfigs {
