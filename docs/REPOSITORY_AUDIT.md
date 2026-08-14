@@ -1,6 +1,6 @@
 # Repository audit
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-14
 
 ## Implemented in this review
 
@@ -8,6 +8,8 @@ Last reviewed: 2026-08-13
 - Made `ScheduleReceiver` non-exported. Android and this application can still deliver the declared system and explicit broadcasts, while unrelated applications can no longer trigger Allo's call alarms.
 - Escaped every local property before using it as a generated Java string literal. Quotes, slashes, and control characters can no longer corrupt `BuildConfig` generation.
 - Added Android lint to pull-request validation, alongside unit tests and debug compilation.
+- Removed legacy APK and ZIP build outputs from version control; signed installables now belong only in GitHub release artifacts.
+- Added weekly, grouped Dependabot checks for Gradle and GitHub Actions plus high-severity dependency review on relevant pull requests.
 
 ## Recommended next enhancements
 
@@ -22,9 +24,7 @@ Last reviewed: 2026-08-13
 
 1. Add accessibility checks for call controls, including content descriptions, minimum touch targets, contrast, TalkBack order, and non-color status cues.
 2. Add Compose screenshot tests for incoming, active, settings, schedule, consent, and memory states across font scales and narrow screens.
-3. Add dependency update and static-analysis automation, with reviewed upgrade pull requests rather than unpinned automatic releases.
-4. Add a user-controlled export/reset flow for memory and settings, with a clear warning that Android backups remain intentionally disabled.
-5. Remove prebuilt APK/ZIP binaries from normal Git history and publish them as signed release artifacts to reduce repository size and ambiguity about canonical builds.
+3. Add a user-controlled export/reset flow for memory and settings, with a clear warning that Android backups remain intentionally disabled.
 
 ## Validation baseline
 

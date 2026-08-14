@@ -1,0 +1,27 @@
+name: Dependency review
+
+on:
+  pull_request:
+    paths:
+      - "**/*.gradle"
+      - "**/*.gradle.kts"
+      - "gradle/**"
+      - "gradle.properties"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
