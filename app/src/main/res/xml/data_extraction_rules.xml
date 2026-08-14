@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <!-- Keep all app data on this device, including device-encrypted storage. -->
     <cloud-backup>
         <exclude domain="root" path="." />
         <exclude domain="file" path="." />
