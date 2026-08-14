@@ -16,9 +16,18 @@ on:
       - ".github/workflows/android-apk.yml"
       - "signing/**"
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: Release version (without the v prefix)
+        required: true
+        default: '3.9.8'
+      version_code:
+        description: Android version code (must exceed every published build)
+        required: true
+        default: '20000'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -45,9 +54,8 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      # PRs must be able to prove code correctness without access to the release
-      # signing secret. The permanent signer is only needed when producing the
-      # canonical installable artifact on main or via workflow_dispatch.
+      # Ordinary pushes and PRs validate without release secrets. A manual
+      # dispatch is the explicit, auditable operation that publishes a release.
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
@@ -58,7 +66,7 @@ jobs:
         run: ./gradlew assembleDebug
 
       - name: Restore permanent Allo signing key
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         env:
           ALLO_SIGNING_BUNDLE: ${{ secrets.ALLO_SIGNING_BUNDLE }}
         run: |
@@ -75,15 +83,19 @@ jobs:
           rm -f /tmp/allo-signing-bundle.zip
 
       - name: Build canonical signed update APK
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
-          VERSION_CODE=$((10000 + GITHUB_RUN_NUMBER))
+          VERSION_CODE='${{ inputs.version_code }}'
+          VERSION_NAME='${{ inputs.version_name }}'
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::version_code must be a positive integer"; exit 1; }
+          [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo "::error::version_name must be a semantic version"; exit 1; }
           echo "ALLO_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-          ./gradlew assembleRelease -PALLO_VERSION_CODE="$VERSION_CODE"
+          echo "ALLO_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          ./gradlew assembleRelease -PALLO_VERSION_CODE="$VERSION_CODE" -PALLO_VERSION_NAME="$VERSION_NAME"
 
       - name: Verify package, version and signing certificate
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
           RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
@@ -112,6 +124,7 @@ jobs:
           BADGING="$("$AAPT" dump badging "$RELEASE_APK" | head -n 1)"
           PACKAGE="$(printf '%s\n' "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
           VERSION="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
 
           if [ "$PACKAGE" != "com.kenza.callsim" ]; then
             echo "::error::Unexpected package id: $PACKAGE"
@@ -121,15 +134,19 @@ jobs:
             echo "::error::Unexpected versionCode: $VERSION (expected $ALLO_VERSION_CODE)"
             exit 1
           fi
+          if [ "$VERSION_NAME" != "$ALLO_VERSION_NAME" ]; then
+            echo "::error::Unexpected versionName: $VERSION_NAME (expected $ALLO_VERSION_NAME)"
+            exit 1
+          fi
 
           mkdir -p dist
           cp "$RELEASE_APK" "dist/Allo-update-vc${ALLO_VERSION_CODE}.apk"
           cp /tmp/signing-report.txt dist/signing-report.txt
-          printf 'package=%s\nversionCode=%s\ncertificateSha256=%s\n' \
-            "$PACKAGE" "$VERSION" "$EXPECTED" > dist/update-metadata.txt
+          printf 'package=%s\nversionCode=%s\nversionName=%s\ncertificateSha256=%s\n' \
+            "$PACKAGE" "$VERSION" "$VERSION_NAME" "$EXPECTED" > dist/update-metadata.txt
 
       - name: Upload only the installable update APK
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v6
         with:
           name: allo-installable-update
@@ -138,3 +155,22 @@ jobs:
             dist/signing-report.txt
             dist/update-metadata.txt
           if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v${ALLO_VERSION_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists. Dispatch with a new version."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            dist/Allo-update-*.apk \
+            dist/signing-report.txt \
+            dist/update-metadata.txt \
+            --target "$GITHUB_SHA" \
+            --title "Allo ${ALLO_VERSION_NAME}" \
+            --generate-notes

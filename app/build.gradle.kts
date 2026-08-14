@@ -44,6 +44,11 @@ val buildVersionCode = providers.gradleProperty("ALLO_VERSION_CODE")
     ?.toIntOrNull()
     ?.takeIf { it > 0 }
     ?: 29
+val buildVersionName = providers.gradleProperty("ALLO_VERSION_NAME")
+    .orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "3.9.8"
 
 android {
     namespace = "com.kenza.callsim"
@@ -54,7 +59,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = buildVersionCode
-        versionName = "3.9.7"
+        versionName = buildVersionName
 
         // Pulled from local.properties (see README). Empty by default.
         buildConfigField("String", "ELEVENLABS_AGENT_ID", javaStringLiteral(secret("ELEVENLABS_AGENT_ID")))
