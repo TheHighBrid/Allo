@@ -218,8 +218,9 @@ app/src/main/java/com/kenza/callsim/
 ./gradlew assembleRelease
 ```
 
-GitHub Actions runs unit tests and builds debug and release APK artifacts for pushes and pull requests affecting Android code.
-It also runs Android lint so correctness and security regressions are reported before an APK is published.
+GitHub Actions runs unit tests, lint, and a debug APK compile check for pushes and pull requests affecting Android code. These validation runs do not require release-signing secrets.
+
+To publish an installable update, run **Build Android APK** manually, enter a new semantic `version_name` and a monotonically increasing `version_code`, and choose **Run workflow**. The manual run restores `ALLO_SIGNING_BUNDLE`, verifies the APK package/version/signing certificate, and creates a GitHub release containing the signed APK and verification metadata. The repository secret must contain a base64-encoded ZIP with `keystore.properties` and `.ci-signing/allo-update.p12`.
 
 ## Troubleshooting
 
