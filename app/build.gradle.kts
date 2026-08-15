@@ -105,9 +105,11 @@ android {
         jvmTarget = "17"
     }
     lint {
-        // Don't let lint warnings block release artifact generation.
-        abortOnError = false
-        checkReleaseBuilds = false
+        // Security and correctness errors must block both CI and release builds.
+        // Warnings remain advisory, so existing non-critical findings do not
+        // prevent a signed update from being produced.
+        abortOnError = true
+        checkReleaseBuilds = true
     }
     buildFeatures {
         compose = true
