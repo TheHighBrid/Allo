@@ -1,0 +1,59 @@
+name: Dependency review
+
+on:
+  pull_request:
+    paths:
+      - "**/*.gradle"
+      - "**/*.gradle.kts"
+      - "gradle/**"
+      - "gradle.properties"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check dependency graph availability
+        id: dependency-graph
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          http_status="$(
+            curl --silent --show-error \
+              --output "${RUNNER_TEMP}/dependency-sbom.json" \
+              --write-out "%{http_code}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/sbom"
+          )"
+
+          case "${http_status}" in
+            200)
+              echo "enabled=true" >> "${GITHUB_OUTPUT}"
+              ;;
+            404)
+              echo "enabled=false" >> "${GITHUB_OUTPUT}"
+              echo "::notice title=Dependency review skipped::GitHub Dependency Graph is disabled for this repository. Enable it in Settings > Advanced Security to activate dependency review."
+              ;;
+            *)
+              echo "::error title=Dependency graph probe failed::GitHub API returned HTTP ${http_status}."
+              cat "${RUNNER_TEMP}/dependency-sbom.json" || true
+              exit 1
+              ;;
+          esac
+
+      - name: Review dependency changes
+        if: steps.dependency-graph.outputs.enabled == 'true'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
