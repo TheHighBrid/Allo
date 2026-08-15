@@ -80,9 +80,9 @@ jobs:
 
           BADGING="$("$AAPT" dump badging "$RELEASE_APK")"
           PACKAGE_LINE="${BADGING%%$'\n'*}"
-          PACKAGE="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
-          VERSION="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-          VERSION_NAME="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          PACKAGE="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+          VERSION="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/^package: name='[^']*' versionCode='\([^']*\)'.*/\1/p")"
+          VERSION_NAME="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/^package: name='[^']*' versionCode='[^']*' versionName='\([^']*\)'.*/\1/p")"
 
           echo "Verified package=$PACKAGE versionCode=$VERSION versionName=$VERSION_NAME certificate=$ACTUAL"
           if [ "$PACKAGE" != "com.kenza.callsim" ]; then
