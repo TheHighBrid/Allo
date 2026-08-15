@@ -392,21 +392,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun isFarewell(text: String): Boolean {
-        val t = text.lowercase()
-        return listOf(
-            "bye", "goodnight", "good night", "night night", "talk to you later",
-            "talk later", "talk soon", "gotta go", "i'll let you go", "let you go",
-            "see you", "see ya", "call you later", "sleep well", "take care", "later gator"
-        ).any { t.contains(it) }
+        return ConversationEndDetector.isFarewell(text)
     }
 
     private fun isAngryHangup(text: String): Boolean {
-        val t = text.lowercase()
-        return listOf(
-            "i'm hanging up", "im hanging up", "i'm done", "im done", "we're done",
-            "were done", "don't call me", "dont call me", "lose my number",
-            "leave me alone", "forget it", "don't ever", "dont ever", "i'm out", "im out"
-        ).any { t.contains(it) }
+        return ConversationEndDetector.isAngryHangup(text)
     }
 
     private fun markSpeaking() {
@@ -597,6 +587,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         callStartedAt = 0L
         if (startedAt == 0L) return
 
+        // A manual hang-up can happen before the provider emits turn-complete.
+        // Preserve any text already delivered to the UI instead of silently
+        // dropping the final partial turn from post-call memory extraction.
+        transcript += transcriptAssembler.commit()
         val realExchange = transcript.count { it.first == "user" } >= 1 && transcript.size >= 2
         if (realExchange) {
             memory.recordCall(startedAt)
