@@ -8,6 +8,8 @@ Last reviewed: 2026-08-13
 - Made `ScheduleReceiver` non-exported. Android and this application can still deliver the declared system and explicit broadcasts, while unrelated applications can no longer trigger Allo's call alarms.
 - Escaped every local property before using it as a generated Java string literal. Quotes, slashes, and control characters can no longer corrupt `BuildConfig` generation.
 - Added Android lint to pull-request validation, alongside unit tests and debug compilation.
+- Restored lint's error gate for release builds; signed artifacts can no longer be produced when Android lint reports a correctness or security error.
+- Limited the normal validation job to read-only repository access. Only the isolated, manual publish job receives permission to create a GitHub release, and it can run only after the signed APK has been verified and uploaded.
 
 ## Recommended next enhancements
 
