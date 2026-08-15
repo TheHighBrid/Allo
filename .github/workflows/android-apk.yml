@@ -176,6 +176,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           ALLO_VERSION_NAME: ${{ inputs.version_name }}
         run: |
           set -euo pipefail
