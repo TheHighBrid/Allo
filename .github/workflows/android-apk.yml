@@ -98,7 +98,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
-          RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
           test -n "$RELEASE_APK"
 
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
@@ -107,12 +107,13 @@ jobs:
           test -x "$APKSIGNER"
           test -x "$AAPT"
 
-          "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" | tee /tmp/signing-report.txt
+          SIGNING_REPORT="$("$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK")"
+          printf '%s\n' "$SIGNING_REPORT" | tee /tmp/signing-report.txt
 
           EXPECTED="$(tr -d ':[:space:]' < signing/allo-update-cert.sha256 | tr '[:lower:]' '[:upper:]')"
-          ACTUAL="$("$APKSIGNER" verify --print-certs "$RELEASE_APK" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | head -n 1 \
+          ACTUAL="$(printf '%s\n' "$SIGNING_REPORT" \
+            | sed -n 's/^.*certificate SHA-256 digest: //p' \
+            | sed -n '1p' \
             | tr -d ':[:space:]' \
             | tr '[:lower:]' '[:upper:]')"
 
@@ -121,10 +122,11 @@ jobs:
             exit 1
           fi
 
-          BADGING="$("$AAPT" dump badging "$RELEASE_APK" | head -n 1)"
-          PACKAGE="$(printf '%s\n' "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
-          VERSION="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
-          VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          BADGING="$("$AAPT" dump badging "$RELEASE_APK")"
+          PACKAGE_LINE="${BADGING%%$'\n'*}"
+          PACKAGE="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+          VERSION="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/^package: name='[^']*' versionCode='\([^']*\)'.*/\1/p")"
+          VERSION_NAME="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/^package: name='[^']*' versionCode='[^']*' versionName='\([^']*\)'.*/\1/p")"
 
           if [ "$PACKAGE" != "com.kenza.callsim" ]; then
             echo "::error::Unexpected package id: $PACKAGE"
