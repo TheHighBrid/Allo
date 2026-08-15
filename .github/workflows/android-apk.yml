@@ -166,7 +166,7 @@ jobs:
 
     steps:
       - name: Download verified release artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: allo-installable-update
           path: dist
