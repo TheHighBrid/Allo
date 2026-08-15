@@ -1,0 +1,104 @@
+name: Ad Hoc Signed Allo APK
+
+on:
+  push:
+    branches:
+      - release/allo-apk-2026-08-14
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify signed Allo APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Run Android lint
+        run: ./gradlew lintDebug
+
+      - name: Restore permanent Allo signing key
+        env:
+          ALLO_SIGNING_BUNDLE: ${{ secrets.ALLO_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALLO_SIGNING_BUNDLE:-}" ]; then
+            echo "::error::Repository secret ALLO_SIGNING_BUNDLE is missing."
+            exit 1
+          fi
+          printf '%s' "$ALLO_SIGNING_BUNDLE" | base64 --decode > /tmp/allo-signing-bundle.zip
+          unzip -q /tmp/allo-signing-bundle.zip -d .
+          test -f keystore.properties
+          test -f .ci-signing/allo-update.p12
+          chmod 600 keystore.properties .ci-signing/allo-update.p12
+          rm -f /tmp/allo-signing-bundle.zip
+
+      - name: Build signed update APK
+        run: |
+          set -euo pipefail
+          VERSION_CODE='26081401'
+          VERSION_NAME='3.9.9'
+          echo "ALLO_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "ALLO_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          ./gradlew assembleRelease -PALLO_VERSION_CODE="$VERSION_CODE" -PALLO_VERSION_NAME="$VERSION_NAME"
+
+      - name: Verify package, version and signing certificate
+        run: |
+          set -euo pipefail
+          RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          test -n "$RELEASE_APK"
+
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          AAPT="$BUILD_TOOLS/aapt"
+          test -x "$APKSIGNER"
+          test -x "$AAPT"
+
+          "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" | tee /tmp/signing-report.txt
+
+          EXPECTED="$(tr -d ':[:space:]' < signing/allo-update-cert.sha256 | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$RELEASE_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          [ -n "$ACTUAL" ]
+          [ "$ACTUAL" = "$EXPECTED" ]
+
+          BADGING="$("$AAPT" dump badging "$RELEASE_APK" | head -n 1)"
+          PACKAGE="$(printf '%s\n' "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
+          VERSION="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+
+          [ "$PACKAGE" = "com.kenza.callsim" ]
+          [ "$VERSION" = "$ALLO_VERSION_CODE" ]
+          [ "$VERSION_NAME" = "$ALLO_VERSION_NAME" ]
+
+          mkdir -p dist
+          cp "$RELEASE_APK" "dist/Allo-${ALLO_VERSION_NAME}-vc${ALLO_VERSION_CODE}.apk"
+          cp /tmp/signing-report.txt dist/signing-report.txt
+          printf 'package=%s\nversionCode=%s\nversionName=%s\ncertificateSha256=%s\n' "$PACKAGE" "$VERSION" "$VERSION_NAME" "$EXPECTED" > dist/update-metadata.txt
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: allo-installable-update-3.9.9
+          path: |
+            dist/Allo-*.apk
+            dist/signing-report.txt
+            dist/update-metadata.txt
+          if-no-files-found: error
