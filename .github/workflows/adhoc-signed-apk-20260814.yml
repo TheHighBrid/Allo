@@ -75,9 +75,11 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" | tee /tmp/signing-report.txt
 
           EXPECTED="$(tr -d ':[:space:]' < signing/allo-update-cert.sha256 | tr '[:lower:]' '[:upper:]')"
-          ACTUAL="$("$APKSIGNER" verify --print-certs "$RELEASE_APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
-          [ -n "$ACTUAL" ]
-          [ "$ACTUAL" = "$EXPECTED" ]
+          ACTUAL="$("$APKSIGNER" verify --print-certs "$RELEASE_APK" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          if [ -z "$ACTUAL" ] || [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::APK signing certificate mismatch. Expected $EXPECTED, got ${ACTUAL:-missing}."
+            exit 1
+          fi
 
           BADGING="$("$AAPT" dump badging "$RELEASE_APK" | head -n 1)"
           PACKAGE="$(printf '%s\n' "$BADGING" | sed -n "s/.*name='\([^']*\)'.*/\1/p")"
