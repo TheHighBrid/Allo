@@ -27,7 +27,7 @@ on:
         default: '20000'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -156,10 +156,25 @@ jobs:
             dist/update-metadata.txt
           if-no-files-found: error
 
+  publish:
+    name: Publish verified APK
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified release artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: allo-installable-update
+          path: dist
+
       - name: Publish GitHub release
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
+          ALLO_VERSION_NAME: ${{ inputs.version_name }}
         run: |
           set -euo pipefail
           TAG="v${ALLO_VERSION_NAME}"
