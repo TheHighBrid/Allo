@@ -13,7 +13,9 @@ import com.kenza.callsim.initiative.InitiativeStore
 import com.kenza.callsim.memory.MemoryContext
 import com.kenza.callsim.memory.MemoryExtractor
 import com.kenza.callsim.memory.MemoryStore
+import com.kenza.callsim.schedule.DeferredScheduledCall
 import com.kenza.callsim.schedule.IncomingCallService
+import com.kenza.callsim.schedule.ScheduledCallRuntime
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.LiveTurnTelemetry
@@ -92,6 +94,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun simulateIncomingCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
+        if (!ScheduledCallRuntime.tryStartUserInitiatedCall()) return
         armIncomingInitiative(explicitToken = null, countAgainstCooldown = false)
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
         ringtone.start()
@@ -107,7 +110,12 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun onScheduledIncomingCall(initiativeToken: String? = null) {
         val phase = _state.value.phase
-        if (phase != CallPhase.IDLE && phase != CallPhase.ENDED) return
+        if (phase == CallPhase.INCOMING) return // duplicate full-screen notification intent
+        if (phase != CallPhase.IDLE && phase != CallPhase.ENDED) {
+            // A last-moment UI race must never leave the foreground service ringing.
+            IncomingCallService.stop(getApplication())
+            return
+        }
         armIncomingInitiative(initiativeToken, countAgainstCooldown = initiativeToken == null)
         // The foreground IncomingCallService already rings + vibrates; just show
         // the incoming UI so we don't double-ring.
@@ -129,6 +137,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun placeCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
+        if (!ScheduledCallRuntime.tryStartUserInitiatedCall()) return
         // Mohamed initiated this call. Kenza still has conversational agency once
         // it starts, but she does not pretend that she was the caller.
         pendingInitiativeToken = null
@@ -198,13 +207,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         if (granted) {
             startVoiceSession()
         } else {
-            _state.update {
-                it.copy(
-                    phase = CallPhase.ENDED,
-                    errorMessage = "Microphone permission is required for the call."
-                )
-            }
-            returnHomeSoon()
+            finishCall("Microphone permission is required for the call.")
         }
     }
 
@@ -545,6 +548,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun finishCall(error: String?) {
+        val finishingCall = _state.value.phase != CallPhase.IDLE && _state.value.phase != CallPhase.ENDED
+        if (!finishingCall) return
+
         pendingStartAfterPermission = false
         dialingJob?.cancel(); dialingJob = null
         persistMemory()
@@ -565,6 +571,17 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         returnHomeSoon()
+        ScheduledCallRuntime.onCallFinished()?.let(::deliverDeferredScheduledCall)
+    }
+
+    /** Starts the next missed schedule only after the completed call returns to the home state. */
+    private fun deliverDeferredScheduledCall(call: DeferredScheduledCall) {
+        viewModelScope.launch {
+            delay(CALL_END_TRANSITION_MS)
+            if (_state.value.phase != CallPhase.IDLE) return@launch
+            onScheduledIncomingCall(call.initiativeToken)
+            IncomingCallService.start(getApplication(), call.initiativeToken)
+        }
     }
 
     private fun returnHomeSoon() {
@@ -691,6 +708,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
+        private const val CALL_END_TRANSITION_MS = 1_200L
         const val NEED_MIC = "__need_mic__"
         const val DEMO_NOTICE =
             "Demo mode: the selected voice provider is not configured, so the call screen works " +

@@ -39,6 +39,11 @@ class ScheduleReceiver : BroadcastReceiver() {
     }
 
     private fun ring(context: Context, initiativeToken: String?) {
+        if (ScheduledCallRuntime.onScheduledCallDue(initiativeToken) == ScheduledCallArrival.DEFERRED) {
+            Log.i("ScheduleReceiver", "deferred scheduled call until the current call ends")
+            return
+        }
+
         // 1) Ring + vibrate + wake immediately, and post the full-screen intent
         // notification. The opaque token contains no memory text.
         IncomingCallService.start(context, initiativeToken)
