@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -56,15 +56,32 @@ fun InCallScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(IOSColors.CallScreenTop, IOSColors.CallScreenBottom)))
-            .padding(horizontal = 28.dp),
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF202A34), IOSColors.CallScreenTop, IOSColors.CallScreenBottom)
+                )
+            )
+            .navigationBarsPadding()
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(64.dp))
-
-        Avatar(name = state.contactName, size = 96)
-        Spacer(Modifier.height(16.dp))
-        Text(state.contactName, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(52.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Text("Allo", color = Color.White.copy(alpha = 0.72f), fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        }
+        Spacer(Modifier.height(28.dp))
+        Avatar(name = state.contactName, size = 112)
+        Spacer(Modifier.height(18.dp))
+        Text(
+            state.contactName,
+            color = Color.White,
+            fontSize = 36.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.6).sp,
+        )
         Spacer(Modifier.height(6.dp))
         Text(statusLine(state), color = IOSColors.SecondaryLabel, fontSize = 17.sp)
 
@@ -76,8 +93,8 @@ fun InCallScreen(
         if (state.lastAgentText.isNotEmpty() && state.phase == CallPhase.ACTIVE) {
             Spacer(Modifier.height(18.dp))
             Surface(
-                color = Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(18.dp),
+                color = Color.White.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.widthIn(max = 340.dp),
             ) {
                 Text(
@@ -97,7 +114,7 @@ fun InCallScreen(
         if (state.isKeypadVisible) {
             Keypad(
                 onKey = onKeypadKey,
-                keyBackground = Color.White.copy(alpha = 0.12f),
+                keyBackground = IOSColors.KeypadBackground.copy(alpha = 0.82f),
                 modifier = Modifier.widthIn(max = 340.dp)
             )
             Spacer(Modifier.height(24.dp))
@@ -118,8 +135,8 @@ fun InCallScreen(
 
         Spacer(Modifier.height(28.dp))
 
-        RoundControl(onClick = onEndCall, background = IOSColors.Red, size = 76) {
-            Icon(Icons.Filled.CallEnd, contentDescription = "End call", tint = Color.White, modifier = Modifier.size(34.dp))
+        RoundControl(onClick = onEndCall, background = IOSColors.Red, size = 80) {
+            Icon(Icons.Filled.CallEnd, contentDescription = "End call", tint = Color.White, modifier = Modifier.size(36.dp))
         }
         Spacer(Modifier.height(40.dp))
     }

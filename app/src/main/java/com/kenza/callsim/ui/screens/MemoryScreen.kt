@@ -54,7 +54,7 @@ import java.util.Locale
 
 /** Reviewable and editable private memory, stored encrypted on this device. */
 @Composable
-fun MemoryScreen(onBack: () -> Unit) {
+fun MemoryScreen(onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val store = remember { MemoryStore(context) }
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -76,19 +76,21 @@ fun MemoryScreen(onBack: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(IOSColors.GroupedBackground)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(56.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = IOSColors.Blue,
-                modifier = Modifier.size(28.dp).clickable(onClick = onBack)
-            )
-            Spacer(Modifier.size(12.dp))
+            if (onBack != null) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = IOSColors.Blue,
+                    modifier = Modifier.size(28.dp).clickable(onClick = onBack)
+                )
+                Spacer(Modifier.size(12.dp))
+            }
             Column {
                 Text("Kenza Memory", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
                 Text(
@@ -215,7 +217,7 @@ fun MemoryScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFF2C2C2E))
+        HorizontalDivider(color = IOSColors.Separator)
         TextButton(onClick = { showClearConfirm = true }, modifier = Modifier.fillMaxWidth()) {
             Text("Delete all Kenza memory", color = IOSColors.Red)
         }
@@ -248,7 +250,7 @@ fun MemoryScreen(onBack: () -> Unit) {
 
 @Composable
 private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
-    Surface(color = Color(0xFF1C1C1E), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = IOSColors.SecondaryBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -291,7 +293,7 @@ private fun MemoryCard(
     onDone: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Surface(color = Color(0xFF1C1C1E), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = IOSColors.SecondaryBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -349,7 +351,7 @@ private fun ProfileField(label: String, value: String, onChange: (String) -> Uni
 @Composable
 private fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
-        color = if (selected) IOSColors.Green else Color(0xFF1C1C1E),
+        color = if (selected) IOSColors.Green else IOSColors.SecondaryBackground,
         shape = RoundedCornerShape(11.dp),
         modifier = modifier.clickable(onClick = onClick),
     ) {

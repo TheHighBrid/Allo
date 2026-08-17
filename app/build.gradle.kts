@@ -43,12 +43,12 @@ val buildVersionCode = providers.gradleProperty("ALLO_VERSION_CODE")
     .orNull
     ?.toIntOrNull()
     ?.takeIf { it > 0 }
-    ?: 29
+    ?: 30
 val buildVersionName = providers.gradleProperty("ALLO_VERSION_NAME")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "3.9.8"
+    ?: "3.10.0"
 
 android {
     namespace = "com.kenza.callsim"

@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -63,12 +64,16 @@ fun HomeScreen(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(
+                Brush.verticalGradient(
+                    listOf(IOSColors.CallScreenTop, IOSColors.GroupedBackground)
+                )
+            )
     ) {
         val isCompactHeight = maxHeight < 760.dp
         val contentModifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp)
+            .padding(horizontal = 24.dp)
             .let { baseModifier ->
                 if (isCompactHeight) {
                     baseModifier.verticalScroll(rememberScrollState())
@@ -81,7 +86,7 @@ fun HomeScreen(
             modifier = contentModifier,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(54.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -90,8 +95,9 @@ fun HomeScreen(
                 Text(
                     "Allo",
                     color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeQuickAction(Icons.Filled.Memory, "Memory", onOpenMemory)
@@ -99,7 +105,7 @@ fun HomeScreen(
                     HomeQuickAction(Icons.Filled.Settings, "Settings", onOpenSettings)
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(18.dp))
 
             ConnectionStatus(isConfigured = state.isConfigured)
 
@@ -135,11 +141,12 @@ fun HomeScreen(
 
             Keypad(
                 onKey = onDigit,
-                keyBackground = Color(0xFF1C1C1E),
+                keyBackground = IOSColors.KeypadBackground,
+
                 modifier = Modifier.widthIn(max = 360.dp)
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
 
             Row(
                 modifier = Modifier
@@ -188,7 +195,7 @@ fun HomeScreen(
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(Color(0xFF1C1C1E))
+                    .background(IOSColors.SecondaryBackground)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -204,7 +211,7 @@ fun HomeScreen(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.size(8.dp))
-                Text("Simulate incoming call", color = Color.White, fontSize = 15.sp)
+                Text("Simulate incoming call", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(40.dp))
         }
@@ -221,7 +228,7 @@ private fun HomeQuickAction(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .background(Color(0xFF1C1C1E))
+            .background(IOSColors.SecondaryBackground)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center

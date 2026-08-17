@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,12 +39,12 @@ private val KEYS = listOf(
 fun Keypad(
     onKey: (Char) -> Unit,
     modifier: Modifier = Modifier,
-    keyBackground: Color = Color(0xFF1C1C1E),
+    keyBackground: Color = Color(0xFF2C2C2E),
     digitColor: Color = Color.White,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         KEYS.chunked(3).forEach { row ->
             Row(
@@ -76,14 +78,15 @@ private fun KeyButton(
             .aspectRatio(1f)
             .clip(CircleShape)
             .background(background)
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { role = Role.Button },
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.material3.Text(
                 text = key.digit.toString(),
                 color = digitColor,
-                fontSize = 32.sp,
+                fontSize = 31.sp,
                 fontWeight = FontWeight.Light,
                 textAlign = TextAlign.Center
             )
@@ -93,7 +96,7 @@ private fun KeyButton(
                     color = digitColor.copy(alpha = 0.9f),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 2.sp
+                    letterSpacing = 1.8.sp
                 )
             }
         }
@@ -114,7 +117,8 @@ fun RoundControl(
             .size(size.dp)
             .clip(CircleShape)
             .background(background)
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { role = Role.Button },
         contentAlignment = Alignment.Center,
         content = { content() }
     )

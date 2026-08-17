@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,15 +62,16 @@ fun SettingsScreen(
     var injectMemory by remember { mutableStateOf(initial.elevenInjectMemory) }
     var contactName by remember { mutableStateOf(initial.contactName) }
     var persona by remember { mutableStateOf(initial.persona) }
+    var validationError by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(IOSColors.GroupedBackground)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(48.dp))
+        Spacer(Modifier.height(56.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
@@ -108,7 +110,8 @@ fun SettingsScreen(
         if (provider == ProviderType.GEMINI) {
             Field("Gemini API key", geminiKey, { geminiKey = it },
                 "Get a free key at aistudio.google.com/apikey",
-                "Required for daily live calls and automatic post-call memory summaries.")
+                "Required for daily live calls and automatic post-call memory summaries.",
+                secret = true)
             Text("Voice", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -138,7 +141,8 @@ fun SettingsScreen(
                 "Only required when you deliberately choose the optional ElevenLabs engine.")
             Field("ElevenLabs secret API key (private agents only)", elevenKey, { elevenKey = it },
                 "sk_...",
-                "Leave blank for a public agent. For a private agent, paste the secret key shown when it was created or rotated. It starts with sk_. Do not paste the Key ID.")
+                "Leave blank for a public agent. For a private agent, paste the secret key shown when it was created or rotated. It starts with sk_. Do not paste the Key ID.",
+                secret = true)
             Field("Backup keys — optional failover", backups, { backups = it },
                 "agentId, sk_...\nagentId, sk_...",
                 "Each private-agent backup needs its secret sk_ key, not the dashboard Key ID. Public-agent backups should not need a key.",
@@ -164,8 +168,24 @@ fun SettingsScreen(
             "How she should talk", "Loaded with Kenza's encrypted memory before every call.")
 
         Spacer(Modifier.height(24.dp))
+        validationError?.let { error ->
+            Text(error, color = IOSColors.Red, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+        }
         Button(
             onClick = {
+                val error = when {
+                    contactName.isBlank() -> "Enter a contact name before saving."
+                    persona.isBlank() -> "Enter a personality prompt before saving."
+                    provider == ProviderType.GEMINI && geminiKey.isBlank() -> "Add a Gemini API key to use Gemini Live."
+                    provider == ProviderType.GEMINI && geminiModel.isBlank() -> "Enter a Gemini Live model name."
+                    provider == ProviderType.ELEVENLABS && agentId.isBlank() -> "Add an ElevenLabs agent ID to use ElevenLabs."
+                    else -> null
+                }
+                if (error != null) {
+                    validationError = error
+                    return@Button
+                }
+                validationError = null
                 onSave(
                     SettingsData(
                         provider = provider,
@@ -196,7 +216,7 @@ private fun ProviderChip(label: String, selected: Boolean, modifier: Modifier = 
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) IOSColors.Green else Color(0xFF1C1C1E))
+            .background(if (selected) IOSColors.Green else IOSColors.SecondaryBackground)
             .clickable(onClick = onClick)
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center
@@ -214,6 +234,7 @@ private fun Field(
     placeholder: String,
     help: String,
     singleLine: Boolean = true,
+    secret: Boolean = false,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -224,12 +245,15 @@ private fun Field(
             placeholder = { Text(placeholder, color = IOSColors.SecondaryLabel.copy(alpha = 0.6f)) },
             singleLine = singleLine,
             minLines = if (singleLine) 1 else 3,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else KeyboardType.Ascii),
+            visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
                 focusedBorderColor = IOSColors.Blue,
-                unfocusedBorderColor = Color(0xFF3A3A3C),
+                unfocusedBorderColor = IOSColors.Separator,
+                focusedContainerColor = IOSColors.SecondaryBackground,
+                unfocusedContainerColor = IOSColors.SecondaryBackground,
                 cursorColor = IOSColors.Blue,
             ),
             modifier = Modifier.fillMaxWidth()

@@ -53,20 +53,22 @@ import java.util.UUID
 private val DAY_LABELS = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat") // index0 -> Calendar.SUNDAY(1)
 
 @Composable
-fun ScheduleScreen(onBack: () -> Unit) {
+fun ScheduleScreen(onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val scheduler = remember { CallScheduler(context) }
     val items = remember { mutableStateListOf<ScheduledCall>().apply { addAll(scheduler.schedules()) } }
     fun refresh() { items.clear(); items.addAll(scheduler.schedules()) }
 
     Column(
-        Modifier.fillMaxSize().background(Color.Black).verticalScroll(rememberScrollState())
+        Modifier.fillMaxSize().background(IOSColors.GroupedBackground).verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = IOSColors.Blue,
-                modifier = Modifier.size(26.dp).clickable(onClick = onBack))
-            Spacer(Modifier.size(12.dp))
+            if (onBack != null) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = IOSColors.Blue,
+                    modifier = Modifier.size(26.dp).clickable(onClick = onBack))
+                Spacer(Modifier.size(12.dp))
+            }
             Text("Schedule a call", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(16.dp))
@@ -283,7 +285,8 @@ private fun ScheduleRow(call: ScheduledCall, onToggle: (Boolean) -> Unit, onDele
 
 @Composable
 private fun SectionTitle(text: String) {
-    Text(text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+            Text(text, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+
         modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
 }
 
@@ -291,7 +294,7 @@ private fun SectionTitle(text: String) {
 private fun Card(content: ColumnContent) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF1C1C1E)).padding(14.dp)
+            .background(IOSColors.SecondaryBackground).padding(16.dp)
     ) { content() }
 }
 
@@ -307,7 +310,7 @@ private fun WrapRow(content: @Composable () -> Unit) {
 private fun Chip(label: String, selected: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.clip(RoundedCornerShape(18.dp))
-            .background(if (selected) IOSColors.Blue else Color(0xFF2C2C2E))
+            .background(if (selected) IOSColors.Blue else IOSColors.TertiaryBackground)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {

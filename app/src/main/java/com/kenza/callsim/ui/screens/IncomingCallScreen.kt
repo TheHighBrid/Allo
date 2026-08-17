@@ -108,6 +108,8 @@ fun IncomingCallScreen(
                 letterSpacing = (-0.8).sp,
                 maxLines = 1
             )
+            Spacer(Modifier.height(22.dp))
+            Avatar(name = state.contactName, size = 116)
 
             Spacer(Modifier.weight(1f))
 
