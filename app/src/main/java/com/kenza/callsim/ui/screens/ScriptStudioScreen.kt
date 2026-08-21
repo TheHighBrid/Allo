@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,11 +32,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kenza.callsim.script.DemoScriptGenerator
 import com.kenza.callsim.script.ScriptMode
+import com.kenza.callsim.script.ScriptStudioDraft
+import com.kenza.callsim.script.ScriptStudioDraftStore
 import com.kenza.callsim.script.ScriptStudioEditorState
 import com.kenza.callsim.ui.theme.IOSColors
 import kotlinx.coroutines.launch
@@ -50,12 +54,15 @@ fun ScriptStudioScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var requestedMinutesText by remember { mutableStateOf("10") }
-    var mode by remember { mutableStateOf(ScriptMode.CASUAL_DAILY) }
-    var language by remember { mutableStateOf("English") }
-    var callReason by remember { mutableStateOf("") }
-    var scriptText by remember { mutableStateOf("") }
-    var generatedTitle by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val draftStore = remember { ScriptStudioDraftStore(context) }
+    val restoredDraft = remember(draftStore) { draftStore.load() }
+    var requestedMinutesText by remember { mutableStateOf(restoredDraft?.requestedMinutes?.toString() ?: "10") }
+    var mode by remember { mutableStateOf(restoredDraft?.mode ?: ScriptMode.CASUAL_DAILY) }
+    var language by remember { mutableStateOf(restoredDraft?.language ?: "English") }
+    var callReason by remember { mutableStateOf(restoredDraft?.callReason.orEmpty()) }
+    var scriptText by remember { mutableStateOf(restoredDraft?.scriptText.orEmpty()) }
+    var generatedTitle by remember { mutableStateOf(restoredDraft?.generatedTitle) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isGenerating by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -69,6 +76,21 @@ fun ScriptStudioScreen(
     )
     val duration = editor.duration
     val warnings = editor.warnings
+
+    LaunchedEffect(requestedMinutesText, mode, language, callReason, scriptText, generatedTitle) {
+        requestedMinutesText.toIntOrNull()?.let { requestedMinutes ->
+            draftStore.save(
+                ScriptStudioDraft(
+                    requestedMinutes = requestedMinutes,
+                    mode = mode,
+                    language = language,
+                    callReason = callReason,
+                    scriptText = scriptText,
+                    generatedTitle = generatedTitle,
+                ),
+            )
+        }
+    }
 
     Column(
         modifier = modifier
@@ -97,6 +119,12 @@ fun ScriptStudioScreen(
             text = "Create Kenza's audible side of a call, then refine every line before sharing or rendering.",
             color = IOSColors.SecondaryLabel,
             style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            text = "Drafts save automatically on this device.",
+            color = IOSColors.TertiaryLabel,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp),
         )
         Spacer(Modifier.height(16.dp))
 
