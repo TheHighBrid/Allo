@@ -1,5 +1,9 @@
 package com.kenza.callsim.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +24,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,11 +41,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kenza.callsim.config.ConfigRepository
 import com.kenza.callsim.script.DemoScriptGenerator
+import com.kenza.callsim.script.GeminiScriptGenerator
 import com.kenza.callsim.script.ScriptMode
 import com.kenza.callsim.script.ScriptStudioDraft
 import com.kenza.callsim.script.ScriptStudioDraftStore
 import com.kenza.callsim.script.ScriptStudioEditorState
+import com.kenza.callsim.script.ScriptTextExport
 import com.kenza.callsim.ui.theme.IOSColors
 import kotlinx.coroutines.launch
 
@@ -57,6 +65,9 @@ fun ScriptStudioScreen(
     val context = LocalContext.current
     val draftStore = remember { ScriptStudioDraftStore(context) }
     val restoredDraft = remember(draftStore) { draftStore.load() }
+    val clipboard = remember(context) {
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    }
     var requestedMinutesText by remember { mutableStateOf(restoredDraft?.requestedMinutes?.toString() ?: "10") }
     var mode by remember { mutableStateOf(restoredDraft?.mode ?: ScriptMode.CASUAL_DAILY) }
     var language by remember { mutableStateOf(restoredDraft?.language ?: "English") }
@@ -209,6 +220,41 @@ fun ScriptStudioScreen(
                 }
                 Text(if (isGenerating) "Creating demo…" else "Create demo script")
             }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val request = editor.toRequest()
+                    val validation = com.kenza.callsim.script.ScriptRequestValidator.validate(request)
+                    if (!validation.isValid) {
+                        errorMessage = validation.errors.first()
+                        return@OutlinedButton
+                    }
+                    val apiKey = ConfigRepository(context).geminiApiKey
+                    scope.launch {
+                        isGenerating = true
+                        errorMessage = null
+                        GeminiScriptGenerator(apiKey = apiKey).generate(request)
+                            .onSuccess { generated ->
+                                generatedTitle = generated.title
+                                scriptText = generated.ttsText
+                            }
+                            .onFailure { error ->
+                                errorMessage = error.message ?: "Could not create a Gemini script."
+                            }
+                        isGenerating = false
+                    }
+                },
+                enabled = !isGenerating,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Generate with Gemini")
+            }
+            Text(
+                text = "Uses the Gemini key configured in Settings. The key is never saved in the draft.",
+                color = IOSColors.TertiaryLabel,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 6.dp),
+            )
             errorMessage?.let { message ->
                 Text(
                     text = message,
@@ -253,6 +299,39 @@ fun ScriptStudioScreen(
                         color = Color(0xFFFFC107),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                }
+            }
+            if (scriptText.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val cleanText = ScriptTextExport.clean(scriptText)
+                            if (cleanText.isBlank()) {
+                                errorMessage = "There is no spoken text to copy."
+                            } else {
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Kenza script", cleanText))
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Copy clean text") }
+                    OutlinedButton(
+                        onClick = {
+                            val cleanText = ScriptTextExport.clean(scriptText)
+                            if (cleanText.isBlank()) {
+                                errorMessage = "There is no spoken text to export."
+                            } else {
+                                val shareIntent = Intent(Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(Intent.EXTRA_TEXT, cleanText)
+                                context.startActivity(Intent.createChooser(shareIntent, "Export Script Studio text"))
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Export text") }
                 }
             }
         }
