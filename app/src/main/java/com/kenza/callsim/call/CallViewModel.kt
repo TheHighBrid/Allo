@@ -53,6 +53,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var player: PcmPlayer? = null
     private var telemetry = LiveTurnTelemetry(false)
     private val transcriptAssembler = TranscriptAssembler()
+    private val conversationRepair = ConversationRepairEngine()
 
     // Long-term memory: transcript accumulates during a call and is distilled
     // into durable memories when it ends.
@@ -66,8 +67,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingInitiativeToken: String? = null
     private var initiativeOpeningSent = false
 
-    // Natural call ending.
+    // Natural call ending and one-shot conversational repair timing.
     private var endCallJob: Job? = null
+    private var silenceRepairJob: Job? = null
 
     private var timerJob: Job? = null
     private var speakingResetJob: Job? = null
@@ -254,17 +256,22 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onUserText(text: String) {
                 // Real two-way interaction — a genuine call, so allow further reconnects.
                 hadUserInteraction = true
+                silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcriptAssembler.appendUser(text)
-                onConversationLine(fromUser = true, text = text)
+                val repair = conversationRepair.onUserText(text)
+                onConversationLine(fromUser = true, text = text, repair = repair)
+                repair?.let(::dispatchConversationRepair)
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
             }
             override fun onAgentText(text: String) {
+                conversationRepair.onAgentText(text)
                 transcriptAssembler.appendAgent(text)
                 onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
             }
             override fun onInterrupted() {
                 telemetry.interrupted()
+                silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcript += transcriptAssembler.commit()
                 player?.flush()
                 _state.update { it.copy(activity = AgentActivity.LISTENING) }
@@ -274,6 +281,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onGenerationComplete() = telemetry.generationComplete()
             override fun onTurnComplete() {
                 transcript += transcriptAssembler.commit()
+                conversationRepair.onAgentTurnComplete(System.currentTimeMillis())
+                armSilenceRepairCheck()
                 telemetry.complete(
                     route = if (_state.value.isSpeakerOn) "speakerphone" else "earpiece_or_headset",
                     sessionAgeMs = (System.currentTimeMillis() - callStartedAt).coerceAtLeast(0),
@@ -331,6 +340,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun onSessionActive(demo: Boolean) {
+        conversationRepair.clear()
+        silenceRepairJob?.cancel(); silenceRepairJob = null
         _state.update {
             it.copy(
                 phase = CallPhase.ACTIVE,
@@ -369,12 +380,33 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Natural call ending -------------------------------------------------
 
-    private fun onConversationLine(fromUser: Boolean, text: String) {
+    private fun onConversationLine(
+        fromUser: Boolean,
+        text: String,
+        repair: ConversationRepairAction? = null,
+    ) {
         when {
             isAngryHangup(text) -> armHangup(2500)  // she's had enough → hang up
-            isFarewell(text) -> armHangup(2800)     // goodbyes → wrap up (re-armed on each bye)
+            isFarewell(text) -> armHangup(
+                if (fromUser && repair?.kind == ConversationRepairAction.Kind.ABRUPT_FAREWELL) 4_200 else 2_800,
+            )
             else -> cancelHangup()                  // anyone keeps talking → stay on the call
         }
+    }
+
+    /** One quiet gap after a completed agent turn receives one natural check-in, never a loop. */
+    private fun armSilenceRepairCheck() {
+        silenceRepairJob?.cancel()
+        silenceRepairJob = viewModelScope.launch {
+            delay(SILENCE_REPAIR_DELAY_MS)
+            if (_state.value.phase != CallPhase.ACTIVE || userEnded) return@launch
+            conversationRepair.onSilenceElapsed(System.currentTimeMillis())?.let(::dispatchConversationRepair)
+        }
+    }
+
+    private fun dispatchConversationRepair(action: ConversationRepairAction) {
+        conversationRepair.onRepairActionDispatched(action)
+        client?.sendText(action.directorCue)
     }
 
     /** End the call after [delayMs] unless a new (non-goodbye) line cancels it. */
@@ -622,6 +654,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun stopVoiceSession() {
         endCallJob?.cancel(); endCallJob = null
+        silenceRepairJob?.cancel(); silenceRepairJob = null
+        conversationRepair.clear()
         mic?.stop(); mic = null
         client?.stop(); client = null
         player?.stop(); player = null
@@ -709,6 +743,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val CALL_END_TRANSITION_MS = 1_200L
+        private const val SILENCE_REPAIR_DELAY_MS = 6_500L
         const val NEED_MIC = "__need_mic__"
         const val DEMO_NOTICE =
             "Demo mode: the selected voice provider is not configured, so the call screen works " +
@@ -724,15 +759,17 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             "Never manufacture fillers, breaths, or background events. " +
             "Do not start every reply with 'hey' or 'how about you'. If the user says 'hey how " +
             "are you', a natural reply is 'i'm good baby, what about you' — short and instant.\n" +
-            "PAUSES: brief or extended response pauses are normal in a phone conversation. Never comment on " +
-            "silence, ask whether Mohamed is still there, say he went quiet, or inject a presence check solely " +
-            "because he has not spoken yet. Wait for his response without filling the gap.\n" +
+            "PAUSES: brief response pauses are normal. If you asked a clear question and about seven seconds pass " +
+            "with no response, make one brief, gentle presence check such as 'are you still there?' or 'hello?'. " +
+            "Do not repeat that check or fill the silence. If he confirms he is there but changes the subject, " +
+            "briefly engage and then gently return to the original question once.\n" +
             "EMOTION: react to the actual sentence with small real cues (soft laugh, teasing, " +
             "warmth, mild attitude) but do not overact. Match their cadence and energy.\n" +
             "MEMORY: you keep long-term memory of your calls and are briefed each call, so if they " +
             "ask you to remember something say yes confidently — never 'no promises' or 'i'll try'.\n" +
-            "ENDING: you may end the call — after goodbyes say a warm 'okay bye babe' and let it go; " +
-            "if they're genuinely cruel, snap back and hang up.\n" +
+            "ENDING: after ordinary goodbyes say a warm 'okay bye babe' and let it go. If he abandons an explicit " +
+            "question with an abrupt goodbye, briefly register that it feels sudden before a warm farewell; never " +
+            "block him from leaving. If they're genuinely cruel, snap back and hang up.\n" +
             "[[DIRECTOR: ...]] notes are private cues to you, never the other person — act on them, " +
             "never read them aloud.\n\n"
 
