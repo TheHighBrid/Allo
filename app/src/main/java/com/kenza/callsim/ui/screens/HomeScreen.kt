@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhoneCallback
 import androidx.compose.material.icons.filled.Settings
@@ -59,6 +60,7 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenSchedule: () -> Unit,
     onOpenMemory: () -> Unit,
+    onOpenScriptStudio: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(
@@ -108,6 +110,36 @@ fun HomeScreen(
             Spacer(Modifier.height(18.dp))
 
             ConnectionStatus(isConfigured = state.isConfigured)
+
+            Spacer(Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(IOSColors.SecondaryBackground)
+                    .clickable(role = Role.Button, onClick = onOpenScriptStudio)
+                    .semantics { contentDescription = "Open Script Studio" }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = null,
+                    tint = IOSColors.Blue,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text("Script Studio", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Create and edit a one-sided call script",
+                        color = IOSColors.SecondaryLabel,
+                        fontSize = 12.sp,
+                    )
+                }
+                Text("Open", color = IOSColors.Blue, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
 
             Spacer(Modifier.height(8.dp))
 

@@ -35,4 +35,19 @@ class AppNavigationTest {
         assertEquals(AppTab.MEMORY, next.selectedTab)
         assertEquals(false, next.settingsPresented)
     }
+
+    @Test
+    fun openingAndDismissingScriptStudioPreservesTheHomeTab() {
+        val opened = reduceNavigation(
+            AppNavigationState(selectedTab = AppTab.CALL, settingsPresented = true),
+            NavigationIntent.PresentScriptStudio,
+        )
+        val dismissed = reduceNavigation(opened, NavigationIntent.DismissScriptStudio)
+
+        assertEquals(AppTab.CALL, opened.selectedTab)
+        assertEquals(false, opened.settingsPresented)
+        assertEquals(true, opened.scriptStudioPresented)
+        assertEquals(AppTab.CALL, dismissed.selectedTab)
+        assertEquals(false, dismissed.scriptStudioPresented)
+    }
 }

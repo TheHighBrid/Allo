@@ -18,7 +18,7 @@ data class ScriptDurationEstimate(
 object ScriptDurationEstimator {
 
     fun estimate(text: String): ScriptDurationEstimate {
-        val spokenText = BRACKETED_DIRECTION.replace(text, " ")
+        val spokenText = SPEAKER_LABEL.replace(BRACKETED_DIRECTION.replace(text, " "), " ")
         val wordCount = WORD.findAll(spokenText).count()
         val speechSeconds = if (wordCount == 0) 0 else {
             (wordCount * SECONDS_PER_MINUTE / WORDS_PER_MINUTE).roundToInt().coerceAtLeast(1)
@@ -49,6 +49,10 @@ object ScriptDurationEstimator {
 
     private val BRACKETED_DIRECTION = Regex("\\[[^]]*]", RegexOption.IGNORE_CASE)
     private val WORD = Regex("\\b[\\p{L}\\p{N}][\\p{L}\\p{N}'’-]*\\b")
+    private val SPEAKER_LABEL = Regex(
+        "^\\s*(?:kenza|mohamed|listener|user)\\s*:",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
     private val QUANTIFIED_PAUSE = Regex(
         "\\[(?:listening\\s+)?pause\\s+(\\d+(?:\\.\\d+)?)\\s+seconds?]",
         RegexOption.IGNORE_CASE,

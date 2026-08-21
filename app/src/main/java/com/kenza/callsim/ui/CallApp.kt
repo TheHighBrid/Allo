@@ -51,6 +51,7 @@ import com.kenza.callsim.ui.screens.IncomingCallBanner
 import com.kenza.callsim.ui.screens.IncomingCallScreen
 import com.kenza.callsim.ui.screens.MemoryScreen
 import com.kenza.callsim.ui.screens.ScheduleScreen
+import com.kenza.callsim.ui.screens.ScriptStudioScreen
 import com.kenza.callsim.ui.screens.SettingsScreen
 import com.kenza.callsim.ui.theme.IOSColors
 
@@ -80,6 +81,13 @@ fun CallApp(
         return
     }
 
+    if (navigation.scriptStudioPresented) {
+        ScriptStudioScreen(
+            onBack = { navigation = reduceNavigation(navigation, NavigationIntent.DismissScriptStudio) },
+        )
+        return
+    }
+
     AnimatedContent(
         targetState = state.phase,
         transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -95,6 +103,7 @@ fun CallApp(
                 onCall = viewModel::placeCall,
                 onSimulateIncoming = onSimulateIncoming,
                 onOpenSettings = { navigation = reduceNavigation(navigation, NavigationIntent.PresentSettings) },
+                onOpenScriptStudio = { navigation = reduceNavigation(navigation, NavigationIntent.PresentScriptStudio) },
             )
 
             CallPhase.INCOMING -> when (incomingCallPresentation) {
@@ -117,6 +126,7 @@ fun CallApp(
                         onCall = {},
                         onSimulateIncoming = {},
                         onOpenSettings = {},
+                        onOpenScriptStudio = {},
                         interactive = false,
                     )
                     IncomingCallBanner(
@@ -174,6 +184,7 @@ private fun TopLevelTabs(
     onCall: () -> Unit,
     onSimulateIncoming: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenScriptStudio: () -> Unit,
     interactive: Boolean = true,
 ) {
     Column(Modifier.fillMaxSize().background(IOSColors.GroupedBackground)) {
@@ -193,6 +204,7 @@ private fun TopLevelTabs(
                         onOpenSettings = onOpenSettings,
                         onOpenSchedule = { onSelectTab(AppTab.SCHEDULE) },
                         onOpenMemory = { onSelectTab(AppTab.MEMORY) },
+                        onOpenScriptStudio = onOpenScriptStudio,
                         modifier = Modifier,
                     )
                     AppTab.SCHEDULE -> ScheduleScreen()
