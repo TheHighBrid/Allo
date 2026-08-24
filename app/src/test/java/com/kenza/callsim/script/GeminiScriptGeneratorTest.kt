@@ -35,6 +35,38 @@ class GeminiScriptGeneratorTest {
     }
 
     @Test
+    fun `turns a Gemini timeout into a recoverable Script Studio error`() = runBlocking {
+        val generator = GeminiScriptGenerator(
+            apiKey = "test-key",
+            transport = RecordingTransport(Result.failure(java.net.SocketTimeoutException("timeout"))),
+        )
+
+        val error = generator.generate(ScriptRequest(requestedMinutes = 10)).exceptionOrNull()
+
+        assertEquals(
+            "Gemini is taking too long. Your draft is safe; please try again or create a demo script.",
+            error?.message,
+        )
+    }
+
+    @Test
+    fun `propagates cancellation so the editor can immediately leave its loading state`() = runBlocking {
+        val generator = GeminiScriptGenerator(
+            apiKey = "test-key",
+            transport = RecordingTransport(Result.failure(kotlinx.coroutines.CancellationException("cancelled"))),
+        )
+
+        var thrown: Throwable? = null
+        try {
+            generator.generate(ScriptRequest(requestedMinutes = 10))
+        } catch (error: Throwable) {
+            thrown = error
+        }
+
+        assertTrue(thrown is kotlinx.coroutines.CancellationException)
+    }
+
+    @Test
     fun `rejects invalid requests before the Gemini transport is called`() = runBlocking {
         val transport = RecordingTransport(Result.success("This must not be used."))
         val generator = GeminiScriptGenerator(apiKey = "test-key", transport = transport)

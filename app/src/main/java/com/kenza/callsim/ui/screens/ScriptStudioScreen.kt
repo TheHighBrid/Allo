@@ -48,8 +48,12 @@ import com.kenza.callsim.script.ScriptMode
 import com.kenza.callsim.script.ScriptStudioDraft
 import com.kenza.callsim.script.ScriptStudioDraftStore
 import com.kenza.callsim.script.ScriptStudioEditorState
+import com.kenza.callsim.script.ScriptGenerationSource
+import com.kenza.callsim.script.ScriptGenerationUiState
 import com.kenza.callsim.script.ScriptTextExport
 import com.kenza.callsim.ui.theme.IOSColors
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -75,7 +79,9 @@ fun ScriptStudioScreen(
     var scriptText by remember { mutableStateOf(restoredDraft?.scriptText.orEmpty()) }
     var generatedTitle by remember { mutableStateOf(restoredDraft?.generatedTitle) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var isGenerating by remember { mutableStateOf(false) }
+    var generationState by remember { mutableStateOf(ScriptGenerationUiState.idle()) }
+    var generationJob by remember { mutableStateOf<Job?>(null) }
+    val isGenerating = generationState.isGenerating
     val scope = rememberCoroutineScope()
 
     val editor = ScriptStudioEditorState(
@@ -195,22 +201,28 @@ fun ScriptStudioScreen(
                         errorMessage = validation.errors.first()
                         return@Button
                     }
-                    scope.launch {
-                        isGenerating = true
+                    generationJob = scope.launch {
+                        generationState = generationState.start(ScriptGenerationSource.DEMO)
                         errorMessage = null
-                        DemoScriptGenerator().generate(request)
-                            .onSuccess { generated ->
-                                generatedTitle = generated.title
-                                scriptText = generated.ttsText
-                            }
-                            .onFailure { error -> errorMessage = error.message ?: "Could not create the demo script." }
-                        isGenerating = false
+                        try {
+                            DemoScriptGenerator().generate(request)
+                                .onSuccess { generated ->
+                                    generatedTitle = generated.title
+                                    scriptText = generated.ttsText
+                                }
+                                .onFailure { error -> errorMessage = error.message ?: "Could not create the demo script." }
+                        } catch (_: CancellationException) {
+                            errorMessage = "Generation cancelled. Your draft is safe."
+                        } finally {
+                            generationState = generationState.finish()
+                            generationJob = null
+                        }
                     }
                 },
                 enabled = !isGenerating,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                if (isGenerating) {
+                if (generationState.activeSource == ScriptGenerationSource.DEMO) {
                     CircularProgressIndicator(
                         color = Color.White,
                         strokeWidth = 2.dp,
@@ -218,7 +230,7 @@ fun ScriptStudioScreen(
                     )
                     Spacer(Modifier.height(1.dp))
                 }
-                Text(if (isGenerating) "Creating demo…" else "Create demo script")
+                Text(generationState.demoButtonLabel)
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
@@ -230,24 +242,44 @@ fun ScriptStudioScreen(
                         return@OutlinedButton
                     }
                     val apiKey = ConfigRepository(context).geminiApiKey
-                    scope.launch {
-                        isGenerating = true
+                    generationJob = scope.launch {
+                        generationState = generationState.start(ScriptGenerationSource.GEMINI)
                         errorMessage = null
-                        GeminiScriptGenerator(apiKey = apiKey).generate(request)
-                            .onSuccess { generated ->
-                                generatedTitle = generated.title
-                                scriptText = generated.ttsText
-                            }
-                            .onFailure { error ->
-                                errorMessage = error.message ?: "Could not create a Gemini script."
-                            }
-                        isGenerating = false
+                        try {
+                            GeminiScriptGenerator(apiKey = apiKey).generate(request)
+                                .onSuccess { generated ->
+                                    generatedTitle = generated.title
+                                    scriptText = generated.ttsText
+                                }
+                                .onFailure { error ->
+                                    errorMessage = error.message ?: "Could not create a Gemini script."
+                                }
+                        } catch (_: CancellationException) {
+                            errorMessage = "Generation cancelled. Your draft is safe."
+                        } finally {
+                            generationState = generationState.finish()
+                            generationJob = null
+                        }
                     }
                 },
                 enabled = !isGenerating,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Generate with Gemini")
+                if (generationState.activeSource == ScriptGenerationSource.GEMINI) {
+                    CircularProgressIndicator(
+                        color = IOSColors.Label,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.height(18.dp),
+                    )
+                    Spacer(Modifier.height(1.dp))
+                }
+                Text(generationState.geminiButtonLabel)
+            }
+            if (isGenerating) {
+                TextButton(
+                    onClick = { generationJob?.cancel() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Cancel generation") }
             }
             Text(
                 text = "Uses the Gemini key configured in Settings. The key is never saved in the draft.",

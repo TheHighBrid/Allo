@@ -1,5 +1,6 @@
 package com.kenza.callsim.script
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -8,6 +9,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 
 /** Transport boundary that keeps Gemini provider behavior unit-testable. */
@@ -59,9 +61,18 @@ class GeminiScriptGenerator(
                 }
             },
             onFailure = { error ->
-                Result.failure(error)
+                if (error is CancellationException) throw error
+                Result.failure(normalizeTransportFailure(error))
             },
         )
+    }
+
+    private fun normalizeTransportFailure(error: Throwable): Throwable = when (error) {
+        is InterruptedIOException -> IllegalStateException(
+            "Gemini is taking too long. Your draft is safe; please try again or create a demo script.",
+            error,
+        )
+        else -> error
     }
 
     companion object {
@@ -92,7 +103,10 @@ internal object ScriptStudioPrompt {
 /** The REST implementation follows Gemini's generateContent request format. */
 class GeminiRestScriptTransport(
     private val http: OkHttpClient = OkHttpClient.Builder()
-        .callTimeout(75, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .build(),
 ) : GeminiScriptTransport {
 
