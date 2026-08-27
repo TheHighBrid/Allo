@@ -39,30 +39,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kenza.callsim.config.ConfigRepository
 import com.kenza.callsim.memory.KenzaContextAssembler
+import com.kenza.callsim.memory.MemoryItem
+import com.kenza.callsim.memory.MemoryPolicy
 import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.script.DemoScriptGenerator
 import com.kenza.callsim.script.GeminiScriptGenerator
+import com.kenza.callsim.script.IntensityLevel
+import com.kenza.callsim.script.ScriptGenerationSource
+import com.kenza.callsim.script.ScriptGenerationUiState
 import com.kenza.callsim.script.ScriptMode
+import com.kenza.callsim.script.ScriptRequestValidator
 import com.kenza.callsim.script.ScriptStudioDraft
 import com.kenza.callsim.script.ScriptStudioDraftStore
 import com.kenza.callsim.script.ScriptStudioEditorState
-import com.kenza.callsim.script.ScriptGenerationSource
-import com.kenza.callsim.script.ScriptGenerationUiState
 import com.kenza.callsim.script.ScriptTextExport
 import com.kenza.callsim.ui.theme.IOSColors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/**
- * An editable local Script Studio workspace. It intentionally starts with the
- * deterministic demo provider so people can explore the editor without a key,
- * network connection, or paid request.
- */
+/** Editable Script Studio workspace with structured request controls and local draft persistence. */
 @Composable
 fun ScriptStudioScreen(
     onBack: () -> Unit,
@@ -76,12 +77,28 @@ fun ScriptStudioScreen(
     val clipboard = remember(context) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     }
+    val availableMemories = remember(memoryStore) {
+        val now = System.currentTimeMillis()
+        memoryStore.snapshot().items
+            .sortedByDescending { MemoryPolicy.score(it, now) }
+            .take(24)
+    }
+
     var requestedMinutesText by remember { mutableStateOf(restoredDraft?.requestedMinutes?.toString() ?: "10") }
     var mode by remember { mutableStateOf(restoredDraft?.mode ?: ScriptMode.CASUAL_DAILY) }
     var language by remember { mutableStateOf(restoredDraft?.language ?: "English") }
     var callReason by remember { mutableStateOf(restoredDraft?.callReason.orEmpty()) }
+    var mood by remember { mutableStateOf(restoredDraft?.mood.orEmpty()) }
+    var topicsText by remember { mutableStateOf(restoredDraft?.topicsText.orEmpty()) }
+    var selectedMemoryIds by remember { mutableStateOf(restoredDraft?.selectedMemoryIds?.toSet().orEmpty()) }
+    var affection by remember { mutableStateOf(restoredDraft?.affection ?: IntensityLevel.MODERATE) }
+    var humor by remember { mutableStateOf(restoredDraft?.humor ?: IntensityLevel.MODERATE) }
+    var flirtation by remember { mutableStateOf(restoredDraft?.flirtation ?: IntensityLevel.LOW) }
+    var boundariesText by remember { mutableStateOf(restoredDraft?.boundariesText.orEmpty()) }
+    var endingStyle by remember { mutableStateOf(restoredDraft?.endingStyle.orEmpty()) }
     var scriptText by remember { mutableStateOf(restoredDraft?.scriptText.orEmpty()) }
     var generatedTitle by remember { mutableStateOf(restoredDraft?.generatedTitle) }
+    var memoryIdsUsed by remember { mutableStateOf(restoredDraft?.memoryIdsUsed.orEmpty()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var generationState by remember { mutableStateOf(ScriptGenerationUiState.idle()) }
     var generationJob by remember { mutableStateOf<Job?>(null) }
@@ -93,12 +110,78 @@ fun ScriptStudioScreen(
         mode = mode,
         language = language,
         callReason = callReason,
+        mood = mood,
+        topicsText = topicsText,
+        selectedMemoryIds = selectedMemoryIds.toList(),
+        affection = affection,
+        humor = humor,
+        flirtation = flirtation,
+        boundariesText = boundariesText,
+        endingStyle = endingStyle,
         scriptText = scriptText,
     )
     val duration = editor.duration
     val warnings = editor.warnings
 
-    LaunchedEffect(requestedMinutesText, mode, language, callReason, scriptText, generatedTitle) {
+    fun startGeneration(source: ScriptGenerationSource) {
+        val request = editor.toRequest()
+        val validation = ScriptRequestValidator.validate(request)
+        if (!validation.isValid) {
+            errorMessage = validation.errors.first()
+            return
+        }
+        generationJob = scope.launch {
+            generationState = generationState.start(source)
+            errorMessage = null
+            try {
+                val sharedContext = KenzaContextAssembler.assemble(
+                    store = memoryStore,
+                    personaName = configRepository.contactName,
+                    now = System.currentTimeMillis(),
+                    queryText = request.memoryQueryText(),
+                    selectedMemoryIds = request.selectedMemoryIds.toSet(),
+                )
+                val result = when (source) {
+                    ScriptGenerationSource.DEMO -> DemoScriptGenerator().generate(request, sharedContext)
+                    ScriptGenerationSource.GEMINI -> GeminiScriptGenerator(
+                        apiKey = configRepository.geminiApiKey,
+                    ).generate(request, sharedContext)
+                }
+                result
+                    .onSuccess { generated ->
+                        generatedTitle = generated.title
+                        scriptText = generated.ttsText
+                        memoryIdsUsed = generated.memoryIdsUsed
+                    }
+                    .onFailure { error ->
+                        errorMessage = error.message ?: "Could not create the script."
+                    }
+            } catch (_: CancellationException) {
+                errorMessage = "Generation cancelled. Your draft is safe."
+            } finally {
+                generationState = generationState.finish()
+                generationJob = null
+            }
+        }
+    }
+
+    LaunchedEffect(
+        requestedMinutesText,
+        mode,
+        language,
+        callReason,
+        mood,
+        topicsText,
+        selectedMemoryIds,
+        affection,
+        humor,
+        flirtation,
+        boundariesText,
+        endingStyle,
+        scriptText,
+        generatedTitle,
+        memoryIdsUsed,
+    ) {
         requestedMinutesText.toIntOrNull()?.let { requestedMinutes ->
             draftStore.save(
                 ScriptStudioDraft(
@@ -106,8 +189,17 @@ fun ScriptStudioScreen(
                     mode = mode,
                     language = language,
                     callReason = callReason,
+                    mood = mood,
+                    topicsText = topicsText,
+                    selectedMemoryIds = selectedMemoryIds.toList(),
+                    affection = affection,
+                    humor = humor,
+                    flirtation = flirtation,
+                    boundariesText = boundariesText,
+                    endingStyle = endingStyle,
                     scriptText = scriptText,
                     generatedTitle = generatedTitle,
+                    memoryIdsUsed = memoryIdsUsed,
                 ),
             )
         }
@@ -142,7 +234,7 @@ fun ScriptStudioScreen(
             style = MaterialTheme.typography.bodyMedium,
         )
         Text(
-            text = "Drafts save automatically on this device.",
+            text = "Drafts and structured request controls save automatically on this device.",
             color = IOSColors.TertiaryLabel,
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 4.dp),
@@ -196,40 +288,81 @@ fun ScriptStudioScreen(
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        StudioSection(title = "Tone and continuity") {
+            OutlinedTextField(
+                value = mood,
+                onValueChange = { mood = it },
+                label = { Text("Mood") },
+                placeholder = { Text("Playful, tired, affectionate, serious...") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = topicsText,
+                onValueChange = { topicsText = it },
+                label = { Text("Topics") },
+                supportingText = { Text("Separate topics with commas or new lines.") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            IntensityPicker("Affection", affection) { affection = it }
+            IntensityPicker("Humor", humor) { humor = it }
+            IntensityPicker("Flirtation", flirtation) { flirtation = it }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = boundariesText,
+                onValueChange = { boundariesText = it },
+                label = { Text("Boundaries") },
+                supportingText = { Text("One boundary per line or separated by commas.") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = endingStyle,
+                onValueChange = { endingStyle = it },
+                label = { Text("Ending style") },
+                placeholder = { Text("Soft goodnight, rushed goodbye, playful callback...") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             Spacer(Modifier.height(14.dp))
+            Text("Selected memories", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Explicit selections are always included. Other memories are retrieved only when relevant to the request.",
+                color = IOSColors.SecondaryLabel,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 3.dp, bottom = 6.dp),
+            )
+            if (availableMemories.isEmpty()) {
+                Text("No durable memories are available yet.", color = IOSColors.TertiaryLabel, fontSize = 12.sp)
+            } else {
+                availableMemories.forEach { memory ->
+                    MemorySelectionChip(
+                        memory = memory,
+                        selected = memory.id in selectedMemoryIds,
+                        onToggle = {
+                            selectedMemoryIds = if (memory.id in selectedMemoryIds) {
+                                selectedMemoryIds - memory.id
+                            } else {
+                                selectedMemoryIds + memory.id
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        StudioSection(title = "Generate") {
             Button(
-                onClick = {
-                    val request = editor.toRequest()
-                    val validation = com.kenza.callsim.script.ScriptRequestValidator.validate(request)
-                    if (!validation.isValid) {
-                        errorMessage = validation.errors.first()
-                        return@Button
-                    }
-                    generationJob = scope.launch {
-                        generationState = generationState.start(ScriptGenerationSource.DEMO)
-                        errorMessage = null
-                        try {
-                            val sharedContext = KenzaContextAssembler.assemble(
-                                store = memoryStore,
-                                personaName = configRepository.contactName,
-                                now = System.currentTimeMillis(),
-                                queryText = request.memoryQueryText(),
-                                selectedMemoryIds = request.selectedMemoryIds.toSet(),
-                            )
-                            DemoScriptGenerator().generate(request, sharedContext)
-                                .onSuccess { generated ->
-                                    generatedTitle = generated.title
-                                    scriptText = generated.ttsText
-                                }
-                                .onFailure { error -> errorMessage = error.message ?: "Could not create the demo script." }
-                        } catch (_: CancellationException) {
-                            errorMessage = "Generation cancelled. Your draft is safe."
-                        } finally {
-                            generationState = generationState.finish()
-                            generationJob = null
-                        }
-                    }
-                },
+                onClick = { startGeneration(ScriptGenerationSource.DEMO) },
                 enabled = !isGenerating,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -239,47 +372,12 @@ fun ScriptStudioScreen(
                         strokeWidth = 2.dp,
                         modifier = Modifier.height(18.dp),
                     )
-                    Spacer(Modifier.height(1.dp))
                 }
-                Text(generationState.demoButtonLabel)
+                Text(generationState.demoButtonLabel, modifier = Modifier.padding(start = 6.dp))
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
-                onClick = {
-                    val request = editor.toRequest()
-                    val validation = com.kenza.callsim.script.ScriptRequestValidator.validate(request)
-                    if (!validation.isValid) {
-                        errorMessage = validation.errors.first()
-                        return@OutlinedButton
-                    }
-                    val apiKey = configRepository.geminiApiKey
-                    generationJob = scope.launch {
-                        generationState = generationState.start(ScriptGenerationSource.GEMINI)
-                        errorMessage = null
-                        try {
-                            val sharedContext = KenzaContextAssembler.assemble(
-                                store = memoryStore,
-                                personaName = configRepository.contactName,
-                                now = System.currentTimeMillis(),
-                                queryText = request.memoryQueryText(),
-                                selectedMemoryIds = request.selectedMemoryIds.toSet(),
-                            )
-                            GeminiScriptGenerator(apiKey = apiKey).generate(request, sharedContext)
-                                .onSuccess { generated ->
-                                    generatedTitle = generated.title
-                                    scriptText = generated.ttsText
-                                }
-                                .onFailure { error ->
-                                    errorMessage = error.message ?: "Could not create a Gemini script."
-                                }
-                        } catch (_: CancellationException) {
-                            errorMessage = "Generation cancelled. Your draft is safe."
-                        } finally {
-                            generationState = generationState.finish()
-                            generationJob = null
-                        }
-                    }
-                },
+                onClick = { startGeneration(ScriptGenerationSource.GEMINI) },
                 enabled = !isGenerating,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -289,9 +387,8 @@ fun ScriptStudioScreen(
                         strokeWidth = 2.dp,
                         modifier = Modifier.height(18.dp),
                     )
-                    Spacer(Modifier.height(1.dp))
                 }
-                Text(generationState.geminiButtonLabel)
+                Text(generationState.geminiButtonLabel, modifier = Modifier.padding(start = 6.dp))
             }
             if (isGenerating) {
                 TextButton(
@@ -321,11 +418,19 @@ fun ScriptStudioScreen(
                 text = if (scriptText.isBlank()) {
                     "Create a no-network demo to begin editing. You can replace all text once it appears."
                 } else {
-                    "Demo output — edit freely. Duration and warnings update as you type."
+                    "Generated output - edit freely. Duration and warnings update as you type."
                 },
                 color = IOSColors.SecondaryLabel,
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (memoryIdsUsed.isNotEmpty()) {
+                Text(
+                    text = "Continuity context used ${memoryIdsUsed.size} durable memory item${if (memoryIdsUsed.size == 1) "" else "s"}.",
+                    color = IOSColors.Green,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = scriptText,
@@ -400,6 +505,59 @@ fun ScriptStudioScreen(
         }
         Spacer(Modifier.height(28.dp))
     }
+}
+
+@Composable
+private fun IntensityPicker(
+    label: String,
+    value: IntensityLevel,
+    onChange: (IntensityLevel) -> Unit,
+) {
+    Text(label, color = Color.White, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        IntensityLevel.entries.forEach { level ->
+            FilterChip(
+                selected = value == level,
+                onClick = { onChange(level) },
+                label = { Text(level.name.lowercase().replaceFirstChar(Char::uppercase)) },
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
+private fun MemorySelectionChip(
+    memory: MemoryItem,
+    selected: Boolean,
+    onToggle: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onToggle,
+        label = {
+            Column {
+                Text(
+                    text = memory.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${memory.kind.name.lowercase()} · importance ${memory.importance}/5",
+                    fontSize = 10.sp,
+                    color = IOSColors.SecondaryLabel,
+                )
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 4.dp),
+    )
 }
 
 @Composable
