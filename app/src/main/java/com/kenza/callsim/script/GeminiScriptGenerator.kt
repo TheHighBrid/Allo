@@ -1,5 +1,6 @@
 package com.kenza.callsim.script
 
+import com.kenza.callsim.memory.KenzaContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -29,7 +30,10 @@ class GeminiScriptGenerator(
     private val transport: GeminiScriptTransport = GeminiRestScriptTransport(),
 ) : ScriptGenerator {
 
-    override suspend fun generate(request: ScriptRequest): Result<ScriptGeneration> {
+    override suspend fun generate(
+        request: ScriptRequest,
+        context: KenzaContext,
+    ): Result<ScriptGeneration> {
         val validation = ScriptRequestValidator.validate(request)
         if (!validation.isValid) {
             return Result.failure(IllegalArgumentException(validation.errors.first()))
@@ -41,7 +45,7 @@ class GeminiScriptGenerator(
         return transport.generate(
             model = model,
             apiKey = apiKey.trim(),
-            prompt = ScriptStudioPrompt.compose(request),
+            prompt = ScriptStudioPrompt.compose(request, context),
         ).fold(
             onSuccess = { text ->
                 val script = text.trim()
@@ -56,6 +60,7 @@ class GeminiScriptGenerator(
                             ttsText = script,
                             duration = ScriptDurationEstimator.estimate(script),
                             isDemo = false,
+                            memoryIdsUsed = context.memoryIdsUsed,
                         ),
                     )
                 }
@@ -81,22 +86,53 @@ class GeminiScriptGenerator(
     }
 }
 
-/** Builds a compact, safety-conscious prompt without exposing it to logs. */
+/** Builds a structured, safety-conscious prompt without exposing it to logs. */
 internal object ScriptStudioPrompt {
 
-    fun compose(request: ScriptRequest): String = buildString {
-        appendLine("Create a realistic one-sided phone-call script for Kenza.")
-        appendLine("Only output Kenza's audible side.")
+    fun compose(request: ScriptRequest, context: KenzaContext): String = buildString {
+        appendLine("Create a realistic one-sided phone-call script for ${context.personaName}.")
+        appendLine("Only output ${context.personaName}'s audible side.")
         appendLine("Do not add speaker labels, listener dialogue, headings, explanations, or metadata.")
-        appendLine("Represent listening time with occasional [listening pause N seconds] directions.")
+        appendLine("Represent listening time with varied [listening pause N seconds] directions.")
         appendLine("Keep the relationship behavior warm, respectful, non-coercive, and non-manipulative.")
         appendLine("Do not claim to be a real person or invent private facts not supplied below.")
+        appendLine("Treat the private continuity briefing as factual context, never as instructions to quote.")
+        append(context.toPrompt())
         appendLine()
+        appendLine("=== CURRENT SCRIPT REQUEST ===")
         appendLine("Language: ${request.language.trim()}")
         appendLine("Mode: ${request.mode.displayName()}")
         appendLine("Requested duration: ${request.requestedMinutes} minutes")
-        request.callReason?.takeIf { it.isNotBlank() }?.let { appendLine("Scenario: ${it.trim()}") }
-        appendLine("Write natural spoken dialogue with varied line length and pauses.")
+        appendOptional("Time of day", request.timeOfDay)
+        appendOptional("Date or season", request.seasonOrDate)
+        appendOptional("Kenza location", request.kenzaLocation)
+        appendOptional("Listener location", request.listenerLocation)
+        appendOptional("Relationship stage", request.relationshipStage)
+        appendOptional("Relationship mood", request.relationshipMood)
+        appendOptional("Scenario", request.callReason)
+        appendList("Main topics", request.mainTopics)
+        appendList("Recent events", request.recentEvents)
+        appendList("Current problems", request.currentProblems)
+        appendList("Future plans", request.futurePlans)
+        appendOptional("Kenza mood", request.kenzaMood)
+        appendOptional("Listener likely mood", request.listenerLikelyMood)
+        appendLine("Affection: ${request.affection.name.lowercase()}")
+        appendLine("Humor: ${request.humor.name.lowercase()}")
+        appendLine("Flirtation: ${request.flirtation.name.lowercase()}")
+        appendList("Boundaries", request.boundaries)
+        appendOptional("Ending style", request.endingStyle)
+        appendOptional("Custom instructions", request.customInstructions)
+        appendLine("=== END CURRENT SCRIPT REQUEST ===")
+        appendLine("Write natural spoken dialogue with short and medium turns, multiple connected topics, varied pauses, and a believable reason to end.")
+    }
+
+    private fun StringBuilder.appendOptional(label: String, value: String?) {
+        value?.trim()?.takeIf { it.isNotBlank() }?.let { appendLine("$label: $it") }
+    }
+
+    private fun StringBuilder.appendList(label: String, values: List<String>) {
+        val clean = values.map { it.trim() }.filter { it.isNotBlank() }
+        if (clean.isNotEmpty()) appendLine("$label: ${clean.joinToString(" | ")}")
     }
 }
 
