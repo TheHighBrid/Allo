@@ -5,7 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Read secrets from local.properties so API keys never get committed.
+// Read local development credentials from local.properties. They may be useful
+// in debug builds, but release builds below explicitly blank every long-lived
+// provider secret so a distributable APK can never inherit a developer key.
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -61,7 +63,7 @@ android {
         versionCode = buildVersionCode
         versionName = buildVersionName
 
-        // Pulled from local.properties (see README). Empty by default.
+        // Pulled from local.properties for local/debug convenience. Empty by default.
         buildConfigField("String", "ELEVENLABS_AGENT_ID", javaStringLiteral(secret("ELEVENLABS_AGENT_ID")))
         buildConfigField("String", "ELEVENLABS_API_KEY", javaStringLiteral(secret("ELEVENLABS_API_KEY")))
         buildConfigField("String", "ELEVENLABS_VOICE_ID", javaStringLiteral(secret("ELEVENLABS_VOICE_ID")))
@@ -83,8 +85,11 @@ android {
 
     buildTypes {
         release {
-            // Distributed builds must use the runtime ephemeral-token broker.
+            // Distributed builds must never contain reusable provider credentials.
+            // Gemini should use the runtime ephemeral-token broker. ElevenLabs
+            // credentials, when deliberately used, must be supplied on-device.
             buildConfigField("String", "GEMINI_API_KEY", "\"\"")
+            buildConfigField("String", "ELEVENLABS_API_KEY", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
