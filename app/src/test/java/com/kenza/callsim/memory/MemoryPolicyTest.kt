@@ -1,6 +1,8 @@
 package com.kenza.callsim.memory
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,5 +42,49 @@ class MemoryPolicyTest {
         val pinned = normal.copy(id = "pinned", pinned = true)
 
         assertTrue(MemoryPolicy.score(pinned, now) > MemoryPolicy.score(normal, now))
+    }
+
+    @Test
+    fun correction_replacesTextWhilePreservingRecordIdentityAndProvenance() {
+        val original = MemoryItem(
+            id = "stable-id",
+            kind = MemoryKind.PREFERENCE,
+            owner = MemoryOwner.USER,
+            text = "Mohamed prefers blue",
+            createdAt = 100L,
+            updatedAt = 200L,
+            importance = 5,
+            confidence = 0.6,
+            pinned = true,
+            sourceCallId = "call-1",
+        )
+
+        val corrected = MemoryPolicy.corrected(
+            item = original,
+            replacementText = "  Mohamed prefers orange now  ",
+            now = 500L,
+        )!!
+
+        assertEquals("stable-id", corrected.id)
+        assertEquals("Mohamed prefers orange now", corrected.text)
+        assertEquals(100L, corrected.createdAt)
+        assertEquals(500L, corrected.updatedAt)
+        assertEquals(1.0, corrected.confidence, 0.0)
+        assertEquals(5, corrected.importance)
+        assertTrue(corrected.pinned)
+        assertEquals("call-1", corrected.sourceCallId)
+        assertNotEquals(original.text, corrected.text)
+    }
+
+    @Test
+    fun correction_rejectsBlankReplacement() {
+        val item = MemoryItem(
+            id = "id",
+            kind = MemoryKind.FACT,
+            text = "Existing fact",
+            createdAt = 100L,
+        )
+
+        assertTrue(MemoryPolicy.corrected(item, "   ", 200L) == null)
     }
 }

@@ -178,6 +178,21 @@ object MemoryPolicy {
         return left.intersect(right).size.toDouble() / left.union(right).size.toDouble() >= 0.84
     }
 
+    /**
+     * Applies an explicit user correction to the existing durable record.
+     * Keeping the same ID means every consumer immediately sees one current fact instead of
+     * competing stale and corrected copies. Provenance, pinning, and creation time are retained.
+     */
+    fun corrected(item: MemoryItem, replacementText: String, now: Long): MemoryItem? {
+        val clean = replacementText.trim().replace(Regex("\\s+"), " ").take(500)
+        if (clean.isBlank()) return null
+        return item.copy(
+            text = clean,
+            updatedAt = now,
+            confidence = 1.0,
+        )
+    }
+
     fun score(item: MemoryItem, now: Long): Double {
         val ageDays = (now - item.updatedAt).coerceAtLeast(0) / 86_400_000.0
         val recency = (30.0 - ageDays.coerceAtMost(30.0)) / 30.0
