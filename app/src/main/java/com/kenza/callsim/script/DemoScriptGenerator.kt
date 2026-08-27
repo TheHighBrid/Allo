@@ -1,5 +1,7 @@
 package com.kenza.callsim.script
 
+import com.kenza.callsim.memory.KenzaContext
+
 /** A normalized one-sided script that can be reviewed or rendered by a later provider adapter. */
 data class ScriptGeneration(
     val title: String,
@@ -8,11 +10,15 @@ data class ScriptGeneration(
     val ttsText: String,
     val duration: ScriptDurationEstimate,
     val isDemo: Boolean,
+    val memoryIdsUsed: List<String> = emptyList(),
 )
 
-/** Boundary shared by offline and future network-backed Script Studio generators. */
+/** Boundary shared by offline and network-backed Script Studio generators. */
 interface ScriptGenerator {
-    suspend fun generate(request: ScriptRequest): Result<ScriptGeneration>
+    suspend fun generate(request: ScriptRequest, context: KenzaContext): Result<ScriptGeneration>
+
+    suspend fun generate(request: ScriptRequest): Result<ScriptGeneration> =
+        generate(request, KenzaContext())
 }
 
 /**
@@ -21,7 +27,10 @@ interface ScriptGenerator {
  */
 class DemoScriptGenerator : ScriptGenerator {
 
-    override suspend fun generate(request: ScriptRequest): Result<ScriptGeneration> {
+    override suspend fun generate(
+        request: ScriptRequest,
+        context: KenzaContext,
+    ): Result<ScriptGeneration> {
         val validation = ScriptRequestValidator.validate(request)
         if (!validation.isValid) {
             return Result.failure(IllegalArgumentException(validation.errors.first()))
@@ -36,6 +45,7 @@ class DemoScriptGenerator : ScriptGenerator {
                 ttsText = ttsText,
                 duration = ScriptDurationEstimator.estimate(ttsText),
                 isDemo = true,
+                memoryIdsUsed = context.memoryIdsUsed,
             ),
         )
     }

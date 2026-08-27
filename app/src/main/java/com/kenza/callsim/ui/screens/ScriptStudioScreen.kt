@@ -42,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kenza.callsim.config.ConfigRepository
+import com.kenza.callsim.memory.KenzaContextAssembler
+import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.script.DemoScriptGenerator
 import com.kenza.callsim.script.GeminiScriptGenerator
 import com.kenza.callsim.script.ScriptMode
@@ -68,6 +70,8 @@ fun ScriptStudioScreen(
 ) {
     val context = LocalContext.current
     val draftStore = remember { ScriptStudioDraftStore(context) }
+    val configRepository = remember { ConfigRepository(context) }
+    val memoryStore = remember { MemoryStore(context) }
     val restoredDraft = remember(draftStore) { draftStore.load() }
     val clipboard = remember(context) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -205,7 +209,14 @@ fun ScriptStudioScreen(
                         generationState = generationState.start(ScriptGenerationSource.DEMO)
                         errorMessage = null
                         try {
-                            DemoScriptGenerator().generate(request)
+                            val sharedContext = KenzaContextAssembler.assemble(
+                                store = memoryStore,
+                                personaName = configRepository.contactName,
+                                now = System.currentTimeMillis(),
+                                queryText = request.memoryQueryText(),
+                                selectedMemoryIds = request.selectedMemoryIds.toSet(),
+                            )
+                            DemoScriptGenerator().generate(request, sharedContext)
                                 .onSuccess { generated ->
                                     generatedTitle = generated.title
                                     scriptText = generated.ttsText
@@ -241,12 +252,19 @@ fun ScriptStudioScreen(
                         errorMessage = validation.errors.first()
                         return@OutlinedButton
                     }
-                    val apiKey = ConfigRepository(context).geminiApiKey
+                    val apiKey = configRepository.geminiApiKey
                     generationJob = scope.launch {
                         generationState = generationState.start(ScriptGenerationSource.GEMINI)
                         errorMessage = null
                         try {
-                            GeminiScriptGenerator(apiKey = apiKey).generate(request)
+                            val sharedContext = KenzaContextAssembler.assemble(
+                                store = memoryStore,
+                                personaName = configRepository.contactName,
+                                now = System.currentTimeMillis(),
+                                queryText = request.memoryQueryText(),
+                                selectedMemoryIds = request.selectedMemoryIds.toSet(),
+                            )
+                            GeminiScriptGenerator(apiKey = apiKey).generate(request, sharedContext)
                                 .onSuccess { generated ->
                                     generatedTitle = generated.title
                                     scriptText = generated.ttsText
