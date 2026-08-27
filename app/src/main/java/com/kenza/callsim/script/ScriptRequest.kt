@@ -15,16 +15,49 @@ enum class ScriptMode {
     CUSTOM,
 }
 
+enum class IntensityLevel { NONE, LOW, MODERATE, HIGH }
+
 /**
- * A provider-independent script request.
+ * Provider-independent Script Studio request.
  *
- * The model intentionally contains only fields needed to validate an initial
- * request. Additional creative controls can be added without coupling callers
- * to a particular generation provider.
+ * Defaults keep the existing MVP call sites source-compatible while giving the domain layer the
+ * complete set of controls required by the Script Studio specification. UI support can be added
+ * incrementally without changing provider contracts again.
  */
 data class ScriptRequest(
     val requestedMinutes: Int,
     val mode: ScriptMode = ScriptMode.CASUAL_DAILY,
     val language: String = "English",
     val callReason: String? = null,
-)
+    val timeOfDay: String? = null,
+    val seasonOrDate: String? = null,
+    val kenzaLocation: String? = null,
+    val listenerLocation: String? = null,
+    val relationshipStage: String? = null,
+    val relationshipMood: String? = null,
+    val mainTopics: List<String> = emptyList(),
+    val recentEvents: List<String> = emptyList(),
+    val selectedMemoryIds: List<String> = emptyList(),
+    val currentProblems: List<String> = emptyList(),
+    val futurePlans: List<String> = emptyList(),
+    val kenzaMood: String? = null,
+    val listenerLikelyMood: String? = null,
+    val affection: IntensityLevel = IntensityLevel.MODERATE,
+    val humor: IntensityLevel = IntensityLevel.MODERATE,
+    val flirtation: IntensityLevel = IntensityLevel.LOW,
+    val boundaries: List<String> = emptyList(),
+    val endingStyle: String? = null,
+    val customInstructions: String? = null,
+) {
+    /** Text used only to retrieve relevant memories. It is never persisted separately. */
+    fun memoryQueryText(): String = buildList {
+        add(mode.name.replace('_', ' '))
+        callReason?.let(::add)
+        mainTopics.forEach(::add)
+        recentEvents.forEach(::add)
+        currentProblems.forEach(::add)
+        futurePlans.forEach(::add)
+        relationshipMood?.let(::add)
+        kenzaMood?.let(::add)
+    }.joinToString(" ")
+}
