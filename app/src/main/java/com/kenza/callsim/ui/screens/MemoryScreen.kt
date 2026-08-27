@@ -70,6 +70,8 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
     var newOwner by remember { mutableStateOf(MemoryOwner.USER) }
     var newKind by remember { mutableStateOf(MemoryKind.FACT) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var correctingMemory by remember { mutableStateOf<MemoryItem?>(null) }
+    var correctionText by remember { mutableStateOf("") }
 
     fun refresh() { refreshKey++ }
 
@@ -189,10 +191,19 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
             EmptyText("Call summaries will appear here after a real two-way call ends.")
         } else {
             snapshot.calls.sortedByDescending { it.startedAt }.take(12).forEach { call ->
-                CallSummaryCard(call = call, onDelete = {
-                    store.deleteCall(call.id)
-                    refresh()
-                })
+                CallSummaryCard(
+                    call = call,
+                    onDelete = {
+                        store.deleteCall(call.id)
+                        refresh()
+                    },
+                    onApproveCandidate = { candidate ->
+                        if (store.approveCandidateMemory(call.id, candidate.id)) refresh()
+                    },
+                    onRejectCandidate = { candidate ->
+                        if (store.rejectCandidateMemory(call.id, candidate.id)) refresh()
+                    },
+                )
                 Spacer(Modifier.height(10.dp))
             }
         }
@@ -208,6 +219,10 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
             sortedMemories.forEach { item ->
                 MemoryCard(
                     item = item,
+                    onCorrect = {
+                        correctingMemory = item
+                        correctionText = item.text
+                    },
                     onPin = { store.togglePinned(item.id); refresh() },
                     onDone = { store.toggleDone(item.id); refresh() },
                     onDelete = { store.deleteMemory(item.id); refresh() },
@@ -222,6 +237,40 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
             Text("Delete all Kenza memory", color = IOSColors.Red)
         }
         Spacer(Modifier.height(40.dp))
+    }
+
+    correctingMemory?.let { item ->
+        AlertDialog(
+            onDismissRequest = { correctingMemory = null },
+            title = { Text("Correct memory") },
+            text = {
+                Column {
+                    Text(
+                        "Replace the stored fact. The old wording is removed, not kept as a competing memory.",
+                        fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = correctionText,
+                        onValueChange = { correctionText = it },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { correctingMemory = null }) { Text("Cancel") }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = correctionText.isNotBlank(),
+                    onClick = {
+                        if (store.correctMemory(item.id, correctionText)) refresh()
+                        correctingMemory = null
+                    },
+                ) { Text("Save correction", color = IOSColors.Blue) }
+            },
+        )
     }
 
     if (showClearConfirm) {
@@ -249,7 +298,12 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
+private fun CallSummaryCard(
+    call: CallSummary,
+    onDelete: () -> Unit,
+    onApproveCandidate: (MemoryItem) -> Unit,
+    onRejectCandidate: (MemoryItem) -> Unit,
+) {
     Surface(color = IOSColors.SecondaryBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -278,6 +332,34 @@ private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Text("Next call: $it", color = IOSColors.Green, fontSize = 12.sp)
             }
+            if (call.candidateMemories.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = IOSColors.Separator)
+                Spacer(Modifier.height(10.dp))
+                Text("Review memory suggestions", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Nothing below becomes durable memory until you choose Remember.",
+                    color = IOSColors.SecondaryLabel,
+                    fontSize = 11.sp,
+                )
+                call.candidateMemories.forEach { candidate ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "${ownerLabel(candidate.owner)} • ${candidate.kind.name.lowercase()} • ${(candidate.confidence * 100).toInt()}%",
+                        color = IOSColors.SecondaryLabel,
+                        fontSize = 10.sp,
+                    )
+                    Text(candidate.text, color = Color.White, fontSize = 13.sp, lineHeight = 18.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { onRejectCandidate(candidate) }) {
+                            Text("Dismiss", color = IOSColors.Red, fontSize = 12.sp)
+                        }
+                        TextButton(onClick = { onApproveCandidate(candidate) }) {
+                            Text("Remember", color = IOSColors.Green, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
             call.processingError?.let {
                 Spacer(Modifier.height(6.dp))
                 Text("Automatic analysis was limited: $it", color = IOSColors.SecondaryLabel, fontSize = 11.sp)
@@ -289,6 +371,7 @@ private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
 @Composable
 private fun MemoryCard(
     item: MemoryItem,
+    onCorrect: () -> Unit,
     onPin: () -> Unit,
     onDone: () -> Unit,
     onDelete: () -> Unit,
@@ -320,6 +403,7 @@ private fun MemoryCard(
                 fontSize = 11.sp,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onCorrect) { Text("Correct", color = IOSColors.Blue) }
                 TextButton(onClick = onPin) { Text(if (item.pinned) "Unpin" else "Pin", color = IOSColors.Blue) }
                 if (item.kind == MemoryKind.PLAN || item.kind == MemoryKind.GOAL) {
                     TextButton(onClick = onDone) { Text(if (item.done) "Reopen" else "Done", color = IOSColors.Green) }
