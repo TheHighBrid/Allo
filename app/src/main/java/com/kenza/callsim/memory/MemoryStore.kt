@@ -104,6 +104,26 @@ class MemoryStore(context: Context) {
         ).firstOrNull()
     }
 
+    /**
+     * Replaces one existing durable memory in place after an explicit user correction.
+     * The original ID, creation time, source, importance and pin state remain stable, while
+     * the stale text is removed immediately so retrieval can never return both versions.
+     */
+    @Synchronized
+    fun correctMemory(id: String, replacementText: String): Boolean {
+        val state = readState()
+        val index = state.items.indexOfFirst { it.id == id }
+        if (index < 0) return false
+        val corrected = MemoryPolicy.corrected(
+            item = state.items[index],
+            replacementText = replacementText,
+            now = System.currentTimeMillis(),
+        ) ?: return false
+        val items = state.items.toMutableList().also { it[index] = corrected }
+        writeState(state.copy(items = prune(items)))
+        return true
+    }
+
     @Synchronized
     fun deleteMemory(id: String) {
         val state = readState()
