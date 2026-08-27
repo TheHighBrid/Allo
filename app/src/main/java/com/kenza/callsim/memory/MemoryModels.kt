@@ -71,6 +71,8 @@ data class CallSummary(
     val unresolvedTopics: List<String> = emptyList(),
     val followUp: String? = null,
     val memoryIds: List<String> = emptyList(),
+    /** Extracted facts awaiting explicit user approval before durable storage. */
+    val candidateMemories: List<MemoryItem> = emptyList(),
     val processing: Boolean = false,
     val processingError: String? = null,
 ) {
@@ -86,6 +88,7 @@ data class CallSummary(
         put("unresolvedTopics", JSONArray(unresolvedTopics))
         followUp?.let { put("followUp", it) }
         put("memoryIds", JSONArray(memoryIds))
+        put("candidateMemories", JSONArray().also { array -> candidateMemories.forEach { array.put(it.toJson()) } })
         put("processing", processing)
         processingError?.let { put("processingError", it) }
     }
@@ -101,6 +104,7 @@ data class CallSummary(
             unresolvedTopics = o.optJSONArray("unresolvedTopics").asStrings(),
             followUp = o.optString("followUp").takeIf { it.isNotBlank() },
             memoryIds = o.optJSONArray("memoryIds").asStrings(),
+            candidateMemories = o.optJSONArray("candidateMemories").asObjects(MemoryItem::fromJson),
             processing = o.optBoolean("processing", false),
             processingError = o.optString("processingError").takeIf { it.isNotBlank() },
         )
@@ -143,7 +147,7 @@ data class MemorySnapshot(
     val updatedAt: Long = 0L,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
-        put("schemaVersion", 2)
+        put("schemaVersion", 3)
         put("updatedAt", updatedAt)
         put("items", JSONArray().also { array -> items.forEach { array.put(it.toJson()) } })
         put("calls", JSONArray().also { array -> calls.forEach { array.put(it.toJson()) } })

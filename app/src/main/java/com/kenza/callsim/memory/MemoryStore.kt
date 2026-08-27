@@ -171,7 +171,8 @@ class MemoryStore(context: Context) {
         highlights: List<String>,
         unresolvedTopics: List<String>,
         followUp: String?,
-        memoryIds: List<String>,
+        memoryIds: List<String> = emptyList(),
+        candidateMemories: List<MemoryItem> = emptyList(),
         error: String? = null,
     ) {
         val state = readState()
@@ -187,10 +188,50 @@ class MemoryStore(context: Context) {
             unresolvedTopics = unresolvedTopics.cleanMemoryList(8),
             followUp = followUp?.trim()?.take(500),
             memoryIds = memoryIds.distinct(),
+            candidateMemories = candidateMemories
+                .map { it.copy(sourceCallId = old.id) }
+                .distinctBy { MemoryPolicy.normalize(it.text) }
+                .take(MAX_CANDIDATE_MEMORIES),
             processing = false,
             processingError = error,
         )
         writeState(state.copy(calls = calls.sortedBy { it.startedAt }.takeLast(MAX_CALLS)))
+    }
+
+    /** Promotes one reviewed candidate into durable memory and removes it from the review queue. */
+    @Synchronized
+    fun approveCandidateMemory(callId: String, candidateId: String): Boolean {
+        val initial = readState()
+        val call = initial.calls.firstOrNull { it.id == callId } ?: return false
+        val candidate = call.candidateMemories.firstOrNull { it.id == candidateId } ?: return false
+        val storedId = addAll(listOf(candidate.copy(sourceCallId = callId))).firstOrNull() ?: return false
+
+        val latest = readState()
+        val calls = latest.calls.map { current ->
+            if (current.id != callId) current else current.copy(
+                memoryIds = (current.memoryIds + storedId).distinct(),
+                candidateMemories = current.candidateMemories.filterNot { it.id == candidateId },
+            )
+        }
+        writeState(latest.copy(calls = calls))
+        return true
+    }
+
+    /** Rejects one extracted candidate without ever adding it to durable memory. */
+    @Synchronized
+    fun rejectCandidateMemory(callId: String, candidateId: String): Boolean {
+        val state = readState()
+        var found = false
+        val calls = state.calls.map { call ->
+            if (call.id != callId || call.candidateMemories.none { it.id == candidateId }) {
+                call
+            } else {
+                found = true
+                call.copy(candidateMemories = call.candidateMemories.filterNot { it.id == candidateId })
+            }
+        }
+        if (found) writeState(state.copy(calls = calls))
+        return found
     }
 
     fun callTimes(): List<Long> = snapshot().calls.map { it.startedAt }.filter { it > 0 }.sorted()
@@ -263,5 +304,6 @@ class MemoryStore(context: Context) {
     private companion object {
         const val MAX_MEMORIES = 400
         const val MAX_CALLS = 60
+        const val MAX_CANDIDATE_MEMORIES = 10
     }
 }

@@ -11,9 +11,9 @@ import java.util.UUID
 import kotlin.concurrent.thread
 
 /**
- * Distills a completed call into a compact summary, durable memories, future
- * plans and unresolved topics. The raw transcript is used only for extraction
- * and is never written to persistent storage.
+ * Distills a completed call into a compact summary, reviewable memory candidates,
+ * future plans and unresolved topics. Raw transcripts are used only for extraction
+ * and are never written to persistent storage.
  */
 object MemoryExtractor {
 
@@ -28,7 +28,7 @@ object MemoryExtractor {
         store: MemoryStore,
     ) {
         if (transcript.size < 2) return
-        val appContext = context.applicationContext
+        context.applicationContext
         val endedAt = System.currentTimeMillis()
 
         thread(name = "memory-extract") {
@@ -44,9 +44,6 @@ object MemoryExtractor {
                 }.takeLast(18_000)
 
                 val result = requestExtraction(apiKey, contactName, conversation)
-                val storedIds = store.addAll(
-                    result.memories.map { it.copy(sourceCallId = result.callId) }
-                )
                 store.completeLatestCall(
                     endedAt = endedAt,
                     summary = result.summary,
@@ -54,9 +51,9 @@ object MemoryExtractor {
                     highlights = result.highlights,
                     unresolvedTopics = result.unresolvedTopics,
                     followUp = result.followUp,
-                    memoryIds = storedIds,
+                    candidateMemories = result.memories,
                 )
-                Log.i(TAG, "stored ${storedIds.size} memories and a call summary")
+                Log.i(TAG, "queued ${result.memories.size} memory candidates for user review")
             }.onFailure { error ->
                 Log.w(TAG, "extraction failed: ${error.message}")
                 completeWithLocalFallback(store, transcript, endedAt, error.message ?: "Summary failed")
@@ -70,6 +67,7 @@ object MemoryExtractor {
             Read the transcript and return ONLY one JSON object. Be factual and conservative.
             Never invent a memory, motive, relationship event, diagnosis, or personal detail.
             Separate what Mohamed said from what $name said. Corrections override older facts.
+            Suggested memories are candidates only; the user will review them before durable storage.
 
             JSON shape:
             {
@@ -91,7 +89,7 @@ object MemoryExtractor {
             }
 
             Rules:
-            - Store only information useful in future calls. Ignore greetings and filler.
+            - Suggest only information useful in future calls. Ignore greetings and filler.
             - Use USER for Mohamed, KENZA for $name, and SHARED for relationship history or joint plans.
             - Max 10 memories. Confidence must reflect how explicit the transcript was.
             - If Mohamed explicitly asks $name to remember something, include it with importance 5.
@@ -154,7 +152,6 @@ object MemoryExtractor {
             .trim()
         val root = JSONObject(cleaned)
         val now = System.currentTimeMillis()
-        val callId = UUID.randomUUID().toString()
         val memories = mutableListOf<MemoryItem>()
         val array = root.optJSONArray("memories") ?: JSONArray()
 
@@ -182,12 +179,10 @@ object MemoryExtractor {
                 importance = item.optInt("importance", 3).coerceIn(1, 5),
                 confidence = item.optDouble("confidence", 0.8).coerceIn(0.0, 1.0),
                 dueAt = dueAt,
-                sourceCallId = callId,
             )
         }
 
         return ExtractionResult(
-            callId = callId,
             summary = root.optString("summary").ifBlank { "Call completed." },
             mood = root.optString("mood"),
             highlights = root.optJSONArray("highlights").asStrings().cleanMemoryList(6),
@@ -222,7 +217,6 @@ object MemoryExtractor {
                 confidence = 1.0,
             )
         }
-        val ids = store.addAll(explicitMemories)
         val highlights = userLines.takeLast(3).map { it.take(180) }
         store.completeLatestCall(
             endedAt = endedAt,
@@ -235,13 +229,12 @@ object MemoryExtractor {
             highlights = highlights,
             unresolvedTopics = emptyList(),
             followUp = null,
-            memoryIds = ids,
+            candidateMemories = explicitMemories,
             error = error.take(240),
         )
     }
 
     private data class ExtractionResult(
-        val callId: String,
         val summary: String,
         val mood: String,
         val highlights: List<String>,
