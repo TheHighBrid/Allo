@@ -51,7 +51,7 @@ import com.kenza.callsim.ui.screens.IncomingCallBanner
 import com.kenza.callsim.ui.screens.IncomingCallScreen
 import com.kenza.callsim.ui.screens.MemoryScreen
 import com.kenza.callsim.ui.screens.ScheduleScreen
-import com.kenza.callsim.ui.screens.ScriptStudioScreen
+import com.kenza.callsim.ui.screens.ScriptStudioHubScreen
 import com.kenza.callsim.ui.screens.SettingsScreen
 import com.kenza.callsim.ui.theme.IOSColors
 
@@ -82,7 +82,7 @@ fun CallApp(
     }
 
     if (navigation.scriptStudioPresented) {
-        ScriptStudioScreen(
+        ScriptStudioHubScreen(
             onBack = { navigation = reduceNavigation(navigation, NavigationIntent.DismissScriptStudio) },
         )
         return
