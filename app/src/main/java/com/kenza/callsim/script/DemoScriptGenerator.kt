@@ -11,6 +11,7 @@ data class ScriptGeneration(
     val duration: ScriptDurationEstimate,
     val isDemo: Boolean,
     val memoryIdsUsed: List<String> = emptyList(),
+    val productionReport: ScriptProductionReport = ScriptProductionReport(),
 )
 
 /** Boundary shared by offline and network-backed Script Studio generators. */
@@ -46,6 +47,7 @@ class DemoScriptGenerator : ScriptGenerator {
                 duration = ScriptDurationEstimator.estimate(ttsText),
                 isDemo = true,
                 memoryIdsUsed = context.memoryIdsUsed,
+                productionReport = ScriptProductionReportBuilder.build(request, context),
             ),
         )
     }
