@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +50,7 @@ fun ScriptStudioHubScreen(
     val projects = remember { ScriptProjectStore(context) }
     var refreshKey by remember { mutableIntStateOf(0) }
     var editorOpen by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<ScriptProjectSummary?>(null) }
 
     LaunchedEffect(Unit) {
         projects.migrateLegacyDraftIfNeeded()
@@ -153,15 +155,32 @@ fun ScriptStudioHubScreen(
                         projects.duplicate(project.id)
                         refreshKey++
                     },
-                    onDelete = {
-                        projects.delete(project.id)
-                        refreshKey++
-                    },
+                    onDelete = { pendingDelete = project },
                 )
                 Spacer(Modifier.height(12.dp))
             }
         }
         Spacer(Modifier.height(30.dp))
+    }
+
+    pendingDelete?.let { project ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete script?") },
+            text = { Text("${project.title} will be permanently removed from this device.") },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        projects.delete(project.id)
+                        pendingDelete = null
+                        refreshKey++
+                    },
+                ) { Text("Delete", color = IOSColors.Red) }
+            },
+        )
     }
 }
 
