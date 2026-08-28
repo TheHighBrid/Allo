@@ -19,12 +19,20 @@ class ScriptStudioEditorStateTest {
     }
 
     @Test
-    fun `builds a script request from the current editable controls`() {
+    fun `builds a structured script request from current editable controls`() {
         val editor = ScriptStudioEditorState(
             requestedMinutes = 20,
             mode = ScriptMode.CUSTOM,
             language = "French",
             callReason = "An affectionate weekend catch-up",
+            mood = "playful and tired",
+            topicsText = "Melato launch, weekend plans\nfamily",
+            selectedMemoryIds = listOf("memory-a", "memory-b", "memory-a"),
+            affection = IntensityLevel.HIGH,
+            humor = IntensityLevel.MODERATE,
+            flirtation = IntensityLevel.LOW,
+            boundariesText = "Do not invent plans\nNo pressure",
+            endingStyle = "soft goodnight",
         )
 
         val request = editor.toRequest()
@@ -33,6 +41,14 @@ class ScriptStudioEditorStateTest {
         assertEquals(ScriptMode.CUSTOM, request.mode)
         assertEquals("French", request.language)
         assertEquals("An affectionate weekend catch-up", request.callReason)
+        assertEquals("playful and tired", request.kenzaMood)
+        assertEquals(listOf("Melato launch", "weekend plans", "family"), request.mainTopics)
+        assertEquals(listOf("memory-a", "memory-b"), request.selectedMemoryIds)
+        assertEquals(IntensityLevel.HIGH, request.affection)
+        assertEquals(IntensityLevel.MODERATE, request.humor)
+        assertEquals(IntensityLevel.LOW, request.flirtation)
+        assertEquals(listOf("Do not invent plans", "No pressure"), request.boundaries)
+        assertEquals("soft goodnight", request.endingStyle)
         assertTrue(ScriptRequestValidator.validate(request).isValid)
     }
 }
