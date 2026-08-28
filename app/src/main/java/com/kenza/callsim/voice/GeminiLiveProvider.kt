@@ -13,11 +13,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
-/**
- * Google Gemini Live API (native audio) provider. One WebSocket handles
- * speech-in, reasoning and speech-out. Microphone audio is sent through
- * realtimeInput so Gemini can process it incrementally with minimal delay.
- */
+/** Google Gemini Live API provider. */
 class GeminiLiveProvider(
     private val apiKey: String,
     private val model: String,
@@ -40,6 +36,7 @@ class GeminiLiveProvider(
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
+    private val timing = LiveProviderTiming("gemini")
 
     private val connectionLock = Any()
     private var nextConnectionId = 0
@@ -51,14 +48,11 @@ class GeminiLiveProvider(
     @Volatile private var goAwayPending = false
     @Volatile private var sessionEphemeralToken: String? = null
     @Volatile private var consecutiveResumeAttempts = 0
-
-    // Current Gemini Live models support compression and resumption. If a custom
-    // older model rejects either setup field, retry once without continuity so
-    // the optional model override does not make the whole call unusable.
     @Volatile private var continuityEnabled = true
     @Volatile private var retriedWithoutContinuity = false
 
     override fun start() {
+        timing.connectionStarted()
         closedByUser = false
         if (apiKey.isBlank() && tokenBrokerUrl.isBlank()) {
             listener.onClosed("No Gemini API key set. Open Settings and paste your key.", fatal = true)
@@ -90,6 +84,7 @@ class GeminiLiveProvider(
         val webSocket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (!isCurrent(connectionId)) return
+                timing.socketConnected()
                 Log.i(TAG, "open; sending setup resuming=$resuming continuity=$continuityEnabled")
                 webSocket.send(buildSetup().toString())
                 if (!resuming) listener.onConnected()
@@ -156,8 +151,6 @@ class GeminiLiveProvider(
             put("speechConfig", speech)
             put("temperature", 0.82)
             put("topP", 0.82)
-            // Deliberately omit thinkingConfig. Gemini 3.1 Flash Live defaults to
-            // minimal thinking, which is the provider's lowest-latency setting.
         }
         val realtimeInputConfig = JSONObject().apply {
             put("automaticActivityDetection", JSONObject().apply {
@@ -203,6 +196,7 @@ class GeminiLiveProvider(
             json.has("setupComplete") -> {
                 consecutiveResumeAttempts = 0
                 goAwayPending = false
+                timing.sessionReady()
                 listener.onReady(OUTPUT_SAMPLE_RATE)
             }
             json.has("sessionResumptionUpdate") -> {
@@ -217,10 +211,14 @@ class GeminiLiveProvider(
                 val content = json.getJSONObject("serverContent")
                 if (content.optBoolean("interrupted")) {
                     modelGenerating = false
+                    timing.interrupted()
                     listener.onInterrupted()
                 }
                 content.optJSONObject("inputTranscription")?.optString("text")
-                    ?.takeIf { it.isNotEmpty() }?.let(listener::onUserText)
+                    ?.takeIf { it.isNotEmpty() }?.let { finalized ->
+                        timing.speechFinalized()
+                        listener.onUserText(finalized)
+                    }
                 content.optJSONObject("outputTranscription")?.optString("text")
                     ?.takeIf { it.isNotEmpty() }?.let(listener::onAgentText)
                 content.optJSONObject("modelTurn")?.optJSONArray("parts")?.let { parts ->
@@ -229,6 +227,7 @@ class GeminiLiveProvider(
                         val data = parts.optJSONObject(index)?.optJSONObject("inlineData")
                             ?.optString("data").orEmpty()
                         if (data.isNotEmpty()) {
+                            timing.firstAudio()
                             runCatching { Base64.decode(data, Base64.DEFAULT) }
                                 .getOrNull()?.let(listener::onAgentAudio)
                         }
@@ -267,8 +266,6 @@ class GeminiLiveProvider(
 
     override fun sendText(text: String) {
         if (text.isBlank()) return
-        // Gemini 3.1 supports clientContent only for seeding initial history.
-        // Ongoing director cues must use realtimeInput to remain truly live.
         socket?.send(
             JSONObject()
                 .put("realtimeInput", JSONObject().put("text", text))
@@ -327,6 +324,7 @@ class GeminiLiveProvider(
     private fun isCurrent(connectionId: Int): Boolean = activeConnectionId == connectionId
 
     override fun stop() {
+        timing.teardownStarted()
         closedByUser = true
         val previous = synchronized(connectionLock) {
             activeConnectionId = ++nextConnectionId
@@ -335,6 +333,7 @@ class GeminiLiveProvider(
             old
         }
         runCatching { previous?.close(1000, "bye") }
+        timing.teardownComplete()
     }
 
     private fun isFatal(code: Int, reason: String): Boolean {

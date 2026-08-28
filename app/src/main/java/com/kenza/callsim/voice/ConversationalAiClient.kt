@@ -10,21 +10,11 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/**
- * ElevenLabs Conversational AI provider (premium option, Kenza's cloned voice).
- *
- * The agent bundles speech-to-text, the LLM brain (GPT/Gemini configured in the
- * ElevenLabs dashboard), and cloned-voice TTS. We stream mic PCM up and play the
- * agent's PCM down. Quota-limited, so it's offered as the optional premium voice.
- *
- * Protocol: https://elevenlabs.io/docs/conversational-ai/api-reference/websocket
- */
+/** ElevenLabs Conversational AI provider (premium option, Kenza's cloned voice). */
 class ElevenLabsProvider(
     private val agentId: String,
     private val apiKey: String,
     private val listener: VoiceProvider.Listener,
-    // Optional persona + memory sent as a prompt override at connect time.
-    // Requires "Overrides" enabled on the agent; null = use the dashboard prompt.
     private val promptOverride: String? = null,
 ) : VoiceProvider {
 
@@ -37,8 +27,9 @@ class ElevenLabsProvider(
 
     private val http = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // long-lived socket
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
+    private val timing = LiveProviderTiming("elevenlabs")
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var closedByUser = false
@@ -47,6 +38,7 @@ class ElevenLabsProvider(
     @Volatile private var publicFallbackHint: String? = null
 
     override fun start() {
+        timing.connectionStarted()
         closedByUser = false
         sessionReady = false
         publicFallbackHint = null
@@ -58,11 +50,6 @@ class ElevenLabsProvider(
             return
         }
 
-        // Public agents connect directly. Private agents need a signed URL.
-        // A dashboard Key ID is not an API secret and must never be sent as
-        // xi-api-key. If one is present, try the public route instead so a public
-        // agent still works and only require the sk_ secret when authorization is
-        // actually needed.
         Thread {
             val url = try {
                 when (ElevenLabsAuth.classifyApiKey(key)) {
@@ -75,9 +62,6 @@ class ElevenLabsProvider(
                         try {
                             fetchSignedUrl(aid, key)
                         } catch (e: InvalidElevenLabsApiKeyException) {
-                            // The key may be stale while the agent itself is public.
-                            // Recover by trying the documented unauthenticated public
-                            // WebSocket path before ending the call.
                             Log.w(TAG, "ElevenLabs API key rejected; trying public agent connection")
                             publicFallbackHint = ElevenLabsAuth.SECRET_KEY_HINT
                             publicUrl(aid)
@@ -119,6 +103,7 @@ class ElevenLabsProvider(
         val req = Request.Builder().url(url).build()
         socket = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                timing.socketConnected()
                 Log.i(TAG, "socket open")
                 webSocket.send(buildInitMessage())
                 listener.onConnected()
@@ -174,6 +159,7 @@ class ElevenLabsProvider(
         when (json.optString("type")) {
             "conversation_initiation_metadata" -> {
                 sessionReady = true
+                timing.sessionReady()
                 publicFallbackHint = null
                 val fmt = json.optJSONObject("conversation_initiation_metadata_event")
                     ?.optString("agent_output_audio_format").orEmpty()
@@ -185,6 +171,7 @@ class ElevenLabsProvider(
             "audio" -> {
                 val b64 = json.optJSONObject("audio_event")?.optString("audio_base_64").orEmpty()
                 if (b64.isNotEmpty()) {
+                    timing.firstAudio()
                     runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()?.let { raw ->
                         val pcm = if (outputIsMulaw) ulawToPcm16(raw) else raw
                         listener.onAgentAudio(pcm)
@@ -194,14 +181,20 @@ class ElevenLabsProvider(
             "user_transcript" -> {
                 val t = json.optJSONObject("user_transcription_event")
                     ?.optString("user_transcript").orEmpty()
-                if (t.isNotEmpty()) listener.onUserText(t)
+                if (t.isNotEmpty()) {
+                    timing.speechFinalized()
+                    listener.onUserText(t)
+                }
             }
             "agent_response" -> {
                 val t = json.optJSONObject("agent_response_event")
                     ?.optString("agent_response").orEmpty()
                 if (t.isNotEmpty()) listener.onAgentText(t)
             }
-            "interruption" -> listener.onInterrupted()
+            "interruption" -> {
+                timing.interrupted()
+                listener.onInterrupted()
+            }
             "ping" -> {
                 val id = json.optJSONObject("ping_event")?.optInt("event_id") ?: return
                 webSocket.send("""{"type":"pong","event_id":$id}""")
@@ -216,7 +209,6 @@ class ElevenLabsProvider(
         s.send("""{"user_audio_chunk":"$b64"}""")
     }
 
-    // ElevenLabs treats user_message as a text turn and responds with normal agent audio.
     override fun sendText(text: String) {
         if (text.isBlank()) return
         socket?.send(
@@ -228,15 +220,16 @@ class ElevenLabsProvider(
     }
 
     override fun stop() {
+        timing.teardownStarted()
         closedByUser = true
         runCatching { socket?.close(1000, "bye") }
         socket = null
+        timing.teardownComplete()
     }
 
     private fun parseSampleRate(format: String): Int =
         format.substringAfterLast('_').toIntOrNull() ?: 16_000
 
-    /** Out-of-credits / auth failures shouldn't trigger reconnect loops. */
     private fun isFatal(code: Int, reason: String): Boolean {
         val r = reason.lowercase()
         return code == 1008 || r.contains("quota") || r.contains("credit") ||
@@ -257,7 +250,6 @@ class ElevenLabsProvider(
             ?: ""
     }
 
-    /** Decode 8-bit G.711 µ-law to signed 16-bit little-endian PCM. */
     private fun ulawToPcm16(ulaw: ByteArray): ByteArray {
         val bias = 0x84
         val out = ByteArray(ulaw.size * 2)
