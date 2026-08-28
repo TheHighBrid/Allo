@@ -113,16 +113,21 @@ object ScriptStudioDraftCodec {
     private const val LEGACY_FIELD_COUNT = 7
 }
 
-/** Persists exactly one editable Script Studio draft in the app's private preferences. */
+/**
+ * Persists the editor's current working draft. When a library project is active, the same autosave
+ * is mirrored into that project so process death or navigation never requires a separate Save step.
+ */
 class ScriptStudioDraftStore(context: Context) {
 
-    private val prefs = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     fun load(): ScriptStudioDraft? = prefs.getString(KEY_DRAFT, null)
         ?.let(ScriptStudioDraftCodec::decode)
 
     fun save(draft: ScriptStudioDraft) {
         prefs.edit().putString(KEY_DRAFT, ScriptStudioDraftCodec.encode(draft)).apply()
+        ScriptProjectStore(appContext).saveActiveDraft(draft)
     }
 
     fun clear() {
