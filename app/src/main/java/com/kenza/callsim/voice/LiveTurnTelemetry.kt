@@ -2,11 +2,102 @@ package com.kenza.callsim.voice
 
 import android.util.Log
 
+data class LiveProviderTimingSnapshot(
+    val connectionStartedMs: Long? = null,
+    val socketConnectedMs: Long? = null,
+    val sessionReadyMs: Long? = null,
+    val speechFinalizedMs: Long? = null,
+    val firstAudioMs: Long? = null,
+    val interruptedMs: Long? = null,
+    val teardownStartedMs: Long? = null,
+    val teardownCompleteMs: Long? = null,
+) {
+    fun connectionToReadyMs(): Long? = duration(connectionStartedMs, sessionReadyMs)
+    fun finalizedToFirstAudioMs(): Long? = duration(speechFinalizedMs, firstAudioMs)
+    fun teardownDurationMs(): Long? = duration(teardownStartedMs, teardownCompleteMs)
+
+    private fun duration(start: Long?, end: Long?): Long? =
+        if (start == null || end == null || end < start) null else end - start
+}
+
+/**
+ * Content-free lifecycle instrumentation shared by live providers.
+ *
+ * The class records only monotonic event timestamps and derived durations. It never accepts audio,
+ * transcript text, prompts, credentials, or memory content, so diagnostics cannot accidentally
+ * become a content log. Each provider owns one instance per connection lifecycle.
+ */
+class LiveProviderTiming(
+    private val tag: String,
+    private val clockMs: () -> Long = { System.currentTimeMillis() },
+) {
+    @Volatile private var state = LiveProviderTimingSnapshot()
+    @Volatile private var firstAudioRecorded = false
+
+    @Synchronized fun connectionStarted() {
+        firstAudioRecorded = false
+        state = LiveProviderTimingSnapshot(connectionStartedMs = clockMs())
+        emit("connection_started")
+    }
+
+    @Synchronized fun socketConnected() {
+        state = state.copy(socketConnectedMs = state.socketConnectedMs ?: clockMs())
+        emit("socket_connected")
+    }
+
+    @Synchronized fun sessionReady() {
+        state = state.copy(sessionReadyMs = state.sessionReadyMs ?: clockMs())
+        emit("session_ready")
+    }
+
+    /** Provider-authoritative final user turn, not an interim transcription fragment. */
+    @Synchronized fun speechFinalized() {
+        state = state.copy(speechFinalizedMs = clockMs(), firstAudioMs = null, interruptedMs = null)
+        firstAudioRecorded = false
+        emit("speech_finalized")
+    }
+
+    @Synchronized fun firstAudio() {
+        if (firstAudioRecorded) return
+        firstAudioRecorded = true
+        state = state.copy(firstAudioMs = clockMs())
+        emit("first_audio")
+    }
+
+    @Synchronized fun interrupted() {
+        state = state.copy(interruptedMs = clockMs())
+        emit("interrupted")
+    }
+
+    @Synchronized fun teardownStarted() {
+        state = state.copy(teardownStartedMs = clockMs(), teardownCompleteMs = null)
+        emit("teardown_started")
+    }
+
+    @Synchronized fun teardownComplete() {
+        state = state.copy(teardownCompleteMs = clockMs())
+        emit("teardown_complete")
+    }
+
+    @Synchronized fun snapshot(): LiveProviderTimingSnapshot = state
+
+    private fun emit(event: String) {
+        val current = state
+        Log.i(
+            "LiveProviderTiming",
+            "provider=$tag event=$event connectionToReadyMs=${current.connectionToReadyMs()} " +
+                "finalizedToFirstAudioMs=${current.finalizedToFirstAudioMs()} " +
+                "teardownMs=${current.teardownDurationMs()}",
+        )
+    }
+}
+
 data class LiveTurnMetrics(
     val turnId: Long,
     val localSpeechStartMs: Long? = null,
     val localSpeechEndMs: Long? = null,
-    val lastMicPacketQueuedMs: Long? = null,    val firstModelPacketReceivedMs: Long? = null,
+    val lastMicPacketQueuedMs: Long? = null,
+    val firstModelPacketReceivedMs: Long? = null,
     val firstPlaybackQueuedMs: Long? = null,
     val firstPlaybackHeadAdvanceMs: Long? = null,
     val generationCompleteMs: Long? = null,
