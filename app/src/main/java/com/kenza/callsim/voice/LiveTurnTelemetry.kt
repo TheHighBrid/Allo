@@ -2,6 +2,11 @@ package com.kenza.callsim.voice
 
 import android.util.Log
 
+/** Process-local diagnostics gate. CallViewModel refreshes it from the user's setting each session. */
+object LiveDiagnosticsGate {
+    @Volatile var enabled: Boolean = false
+}
+
 data class LiveProviderTimingSnapshot(
     val connectionStartedMs: Long? = null,
     val socketConnectedMs: Long? = null,
@@ -22,10 +27,8 @@ data class LiveProviderTimingSnapshot(
 
 /**
  * Content-free lifecycle instrumentation shared by live providers.
- *
- * The class records only monotonic event timestamps and derived durations. It never accepts audio,
- * transcript text, prompts, credentials, or memory content, so diagnostics cannot accidentally
- * become a content log. Each provider owns one instance per connection lifecycle.
+ * Event timestamps stay in memory regardless of logging, but Logcat emission follows the existing
+ * user-controlled diagnostics opt-in through [LiveDiagnosticsGate].
  */
 class LiveProviderTiming(
     private val tag: String,
@@ -50,7 +53,6 @@ class LiveProviderTiming(
         emit("session_ready")
     }
 
-    /** Provider-authoritative final user turn, not an interim transcription fragment. */
     @Synchronized fun speechFinalized() {
         state = state.copy(speechFinalizedMs = clockMs(), firstAudioMs = null, interruptedMs = null)
         firstAudioRecorded = false
@@ -82,6 +84,7 @@ class LiveProviderTiming(
     @Synchronized fun snapshot(): LiveProviderTimingSnapshot = state
 
     private fun emit(event: String) {
+        if (!LiveDiagnosticsGate.enabled) return
         val current = state
         Log.i(
             "LiveProviderTiming",
@@ -114,6 +117,10 @@ data class LiveTurnMetrics(
 
 /** Content-free per-turn state. No method accepts transcript or media payloads. */
 class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
+    init {
+        LiveDiagnosticsGate.enabled = enabled
+    }
+
     private var nextId = 1L
     private var current = LiveTurnMetrics(nextId)
 
@@ -166,7 +173,6 @@ class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
         current = LiveTurnMetrics(++nextId)
     }
 
-    /** Pure JVM-safe serialization so local unit tests do not depend on Android's JSONObject stub. */
     fun toJson(m: LiveTurnMetrics): String = buildString {
         val fields = listOf<Pair<String, Any?>>(
             "turnId" to m.turnId,
