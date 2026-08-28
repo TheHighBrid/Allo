@@ -3,7 +3,7 @@ package com.kenza.callsim.script.tts
 import java.util.UUID
 
 /**
- * Splits a long script into bounded provider-ready units without breaking spoken blocks in half.
+ * Splits a long script into bounded provider-ready units without breaking prepared blocks in half.
  * Each segment carries a short tail from the previous segment as non-spoken continuity context.
  */
 object TtsSegmenter {
@@ -26,14 +26,12 @@ object TtsSegmenter {
 
         fun flush() {
             if (current.isEmpty()) return
-            val spoken = current.joinToString("\n\n") { it.spokenText }.trim()
-            val first = current.first()
+            val frozen = current.toList()
+            val spoken = frozen.joinToString("\n\n") { it.spokenText }.trim()
             segments += TtsSegment(
                 id = UUID.randomUUID().toString(),
                 order = segments.size,
-                spokenText = spoken,
-                pauseBeforeMs = first.pauseBeforeMs,
-                performanceDirections = current.flatMap { it.performanceDirections }.distinct(),
+                blocks = frozen,
                 continuityContext = previousTail,
             )
             previousTail = spoken.takeLast(continuityChars)
