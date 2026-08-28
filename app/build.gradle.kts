@@ -14,9 +14,6 @@ val localProps = Properties().apply {
 }
 fun secret(key: String): String = (localProps.getProperty(key) ?: "").trim()
 
-// buildConfigField expects a complete Java string literal. Escaping here keeps
-// legitimate values containing quotes or backslashes from breaking generated
-// BuildConfig.java or changing the structure of the generated source.
 fun javaStringLiteral(value: String): String = buildString {
     append('"')
     value.forEach { char ->
@@ -32,10 +29,6 @@ fun javaStringLiteral(value: String): String = buildString {
     append('"')
 }
 
-// Release signing config is read from keystore.properties (git-ignored).
-// Release APKs intentionally have NO debug-key fallback. A release build without
-// the permanent Allo keystore must fail instead of producing an APK that cannot
-// update an existing installation.
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -63,7 +56,6 @@ android {
         versionCode = buildVersionCode
         versionName = buildVersionName
 
-        // Pulled from local.properties for local/debug convenience. Empty by default.
         buildConfigField("String", "ELEVENLABS_AGENT_ID", javaStringLiteral(secret("ELEVENLABS_AGENT_ID")))
         buildConfigField("String", "ELEVENLABS_API_KEY", javaStringLiteral(secret("ELEVENLABS_API_KEY")))
         buildConfigField("String", "ELEVENLABS_VOICE_ID", javaStringLiteral(secret("ELEVENLABS_VOICE_ID")))
@@ -85,9 +77,6 @@ android {
 
     buildTypes {
         release {
-            // Distributed builds must never contain reusable provider credentials.
-            // Gemini should use the runtime ephemeral-token broker. ElevenLabs
-            // credentials, when deliberately used, must be supplied on-device.
             buildConfigField("String", "GEMINI_API_KEY", "\"\"")
             buildConfigField("String", "ELEVENLABS_API_KEY", "\"\"")
             isMinifyEnabled = true
@@ -96,8 +85,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Never fall back to signingConfigs.debug. If keystore.properties is
-            // absent/incomplete, assembleRelease must fail at signing time.
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -107,9 +94,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     lint {
-        // Security and correctness errors must block both CI and release builds.
-        // Warnings remain advisory, so existing non-critical findings do not
-        // prevent a signed update from being produced.
         abortOnError = true
         checkReleaseBuilds = true
     }
@@ -146,4 +130,7 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    // Android's org.json classes are framework stubs in local JVM tests. Use the reference
+    // implementation only on the test classpath so production serialization can be round-tripped.
+    testImplementation("org.json:json:20260814")
 }
