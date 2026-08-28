@@ -128,12 +128,17 @@ class AndroidLocalTtsRenderer(context: Context) : TtsRenderer, TtsArtifactCleane
         continuation.invokeOnCancellation { tts.stop() }
     }
 
-    private fun mediaDurationMs(file: File): Long = runCatching {
-        MediaMetadataRetriever().use { retriever ->
+    private fun mediaDurationMs(file: File): Long {
+        val retriever = MediaMetadataRetriever()
+        return try {
             retriever.setDataSource(file.absolutePath)
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+        } catch (_: Throwable) {
+            0L
+        } finally {
+            runCatching { retriever.release() }
         }
-    }.getOrDefault(0L)
+    }
 
     private fun resolveLocale(requested: String): Locale {
         val clean = requested.trim()
