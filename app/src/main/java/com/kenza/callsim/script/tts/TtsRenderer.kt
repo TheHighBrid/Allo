@@ -1,15 +1,18 @@
 package com.kenza.callsim.script.tts
 
-/** One provider-ready unit of speech plus non-spoken production metadata. */
+/** One provider-ready unit of speech plus ordered, non-spoken production metadata. */
 data class TtsSegment(
     val id: String,
     val order: Int,
-    val spokenText: String,
-    val pauseBeforeMs: Long = 0,
-    val performanceDirections: List<String> = emptyList(),
+    val blocks: List<TtsPreparedBlock>,
     /** Context for a provider/renderer, never text that should be spoken aloud. */
     val continuityContext: String = "",
-)
+) {
+    val spokenText: String get() = blocks.joinToString("\n\n") { it.spokenText }.trim()
+    val pauseBeforeMs: Long get() = blocks.firstOrNull()?.pauseBeforeMs ?: 0L
+    val performanceDirections: List<String>
+        get() = blocks.flatMap { it.performanceDirections }.distinct()
+}
 
 /** Provider-independent request. No API key or provider-specific voice identifier belongs here. */
 data class TtsRenderRequest(
@@ -36,10 +39,10 @@ data class TtsRenderResult(
 /**
  * Stable boundary for future approved TTS implementations.
  *
- * Renderers receive already-cleaned speech. Bracketed performance directions and pauses are
- * metadata in [TtsSegment], so an adapter can interpret or ignore them without ever speaking them
- * by accident. Cancellation is cooperative through coroutine cancellation; no provider-specific
- * cancellation primitive leaks into callers.
+ * Renderers receive already-cleaned speech blocks. Bracketed performance directions and pauses are
+ * metadata, so an adapter can interpret or ignore them without ever speaking them by accident.
+ * Cancellation is cooperative through coroutine cancellation; provider-specific details stay out
+ * of callers.
  */
 interface TtsRenderer {
     suspend fun render(request: TtsRenderRequest): Result<TtsRenderResult>
