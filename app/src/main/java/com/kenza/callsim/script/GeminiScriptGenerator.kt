@@ -54,6 +54,7 @@ class GeminiScriptGenerator(
                             duration = ScriptDurationEstimator.estimate(script),
                             isDemo = false,
                             memoryIdsUsed = context.memoryIdsUsed,
+                            productionReport = ScriptProductionReportBuilder.build(request, context),
                         ),
                     )
                 }
