@@ -32,6 +32,11 @@ class GeminiScriptGeneratorTest {
         assertEquals("gemini-test-model", transport.model)
         assertTrue(transport.prompt.contains("Only output Kenza's audible side."))
         assertTrue(transport.prompt.contains("A light evening catch-up"))
+        assertTrue(transport.prompt.contains("LISTENER PAUSE CONTRACT"))
+        assertTrue(transport.prompt.contains("1-2 seconds: brief acknowledgment"))
+        assertTrue(transport.prompt.contains("8-15 seconds: detailed or emotional response"))
+        assertTrue(transport.prompt.contains("Do not place a pause after every line"))
+        assertTrue(transport.prompt.contains("30-45% of total duration"))
     }
 
     @Test
