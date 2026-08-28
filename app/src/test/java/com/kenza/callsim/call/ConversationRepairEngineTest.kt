@@ -8,31 +8,29 @@ import org.junit.Test
 class ConversationRepairEngineTest {
 
     @Test
-    fun `issues one presence check after a question receives no response for six and a half seconds`() {
+    fun `silence never emits a proactive presence check`() {
         val engine = ConversationRepairEngine()
         engine.onAgentText("What time should we meet?")
         engine.onAgentTurnComplete(nowMs = 0)
 
         assertNull(engine.onSilenceElapsed(nowMs = 6_499))
-        val action = engine.onSilenceElapsed(nowMs = 6_500)
-
-        assertEquals(ConversationRepairAction.Kind.PRESENCE_CHECK, action?.kind)
-        assertTrue(action?.directorCue?.contains("Are you still there") == true)
+        assertNull(engine.onSilenceElapsed(nowMs = 6_500))
         assertNull(engine.onSilenceElapsed(nowMs = 20_000))
     }
 
     @Test
-    fun `does not track the agent turn created by a repair cue as a new unanswered question`() {
+    fun `silence keeps the pending question available for real user input`() {
         val engine = ConversationRepairEngine()
         engine.onAgentText("What time should we meet?")
         engine.onAgentTurnComplete(nowMs = 0)
 
-        val action = engine.onSilenceElapsed(nowMs = 6_500)
-        engine.onRepairActionDispatched(action!!)
-        engine.onAgentText("Are you still there?")
-        engine.onAgentTurnComplete(nowMs = 6_600)
+        assertNull(engine.onSilenceElapsed(nowMs = 6_500))
+        assertNull(engine.onSilenceElapsed(nowMs = 20_000))
 
-        assertNull(engine.onSilenceElapsed(nowMs = 13_100))
+        val action = engine.onUserText("By the way, did you see the new movie?")
+
+        assertEquals(ConversationRepairAction.Kind.UNANSWERED_QUESTION, action?.kind)
+        assertTrue(action?.directorCue?.contains("What time should we meet?") == true)
     }
 
     @Test
