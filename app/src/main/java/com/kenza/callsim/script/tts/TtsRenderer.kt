@@ -22,28 +22,31 @@ data class TtsRenderRequest(
     val voiceHint: String? = null,
 )
 
+/**
+ * One rendered speech clip. Renderers may emit several clips for one logical segment so explicit
+ * listener pauses survive as timeline metadata instead of being flattened into punctuation.
+ */
 data class TtsRenderedSegment(
     val segmentId: String,
     val durationMs: Long,
-    /** Provider adapter owns the meaning of this opaque local artifact reference. */
     val artifactRef: String,
+    val pauseBeforeMs: Long = 0L,
+    val performanceDirections: List<String> = emptyList(),
 )
 
 data class TtsRenderResult(
     val projectId: String,
     val segments: List<TtsRenderedSegment>,
 ) {
-    val totalDurationMs: Long get() = segments.sumOf { it.durationMs }
+    val totalDurationMs: Long get() = segments.sumOf { it.pauseBeforeMs + it.durationMs }
 }
 
-/**
- * Stable boundary for future approved TTS implementations.
- *
- * Renderers receive already-cleaned speech blocks. Bracketed performance directions and pauses are
- * metadata, so an adapter can interpret or ignore them without ever speaking them by accident.
- * Cancellation is cooperative through coroutine cancellation; provider-specific details stay out
- * of callers.
- */
+/** Stable boundary for approved TTS implementations. */
 interface TtsRenderer {
     suspend fun render(request: TtsRenderRequest): Result<TtsRenderResult>
+}
+
+/** Optional cleanup capability for renderers that create temporary local artifacts. */
+interface TtsArtifactCleaner {
+    fun cleanup(result: TtsRenderResult)
 }
