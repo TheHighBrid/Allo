@@ -6,6 +6,7 @@ internal data class ConversationRepairAction(
     val directorCue: String,
 ) {
     enum class Kind {
+        /** Retained for binary/source compatibility; the engine no longer generates this action. */
         PRESENCE_CHECK,
         UNANSWERED_QUESTION,
         ABRUPT_FAREWELL,
@@ -13,18 +14,13 @@ internal data class ConversationRepairAction(
 }
 
 /**
- * Tracks one pending agent question at a time and produces restrained repair cues.
- *
- * The engine is deliberately deterministic: it does not attempt semantic answer
- * grading. It intervenes after a clear topic pivot, a short silence after a
- * complete question turn, or a farewell that abandons the question.
+ * Tracks one pending agent question at a time and produces restrained repair cues only in response
+ * to actual user input. Quiet time alone never generates a director turn or presence check.
  */
 internal class ConversationRepairEngine {
 
     private var agentTurnText = ""
     private var pendingQuestion: String? = null
-    private var silenceDueAtMs: Long? = null
-    private var silenceCheckIssued = false
     private var recoveryIssued = false
     private var ignoreNextAgentTurn = false
 
@@ -33,17 +29,14 @@ internal class ConversationRepairEngine {
     }
 
     fun onAgentTurnComplete(nowMs: Long) {
+        @Suppress("UNUSED_VARIABLE") val completedAt = nowMs // kept for the stable caller contract
         if (ignoreNextAgentTurn) {
             agentTurnText = ""
             ignoreNextAgentTurn = false
-            silenceDueAtMs = null
             return
         }
-        val question = extractFinalQuestion(agentTurnText)
+        pendingQuestion = extractFinalQuestion(agentTurnText)
         agentTurnText = ""
-        pendingQuestion = question
-        silenceDueAtMs = question?.let { nowMs + SILENCE_CHECK_DELAY_MS }
-        silenceCheckIssued = false
         recoveryIssued = false
     }
 
@@ -55,7 +48,6 @@ internal class ConversationRepairEngine {
 
     fun onUserText(text: String): ConversationRepairAction? {
         val question = pendingQuestion ?: return null
-        silenceDueAtMs = null
 
         if (ConversationEndDetector.isFarewell(text)) {
             pendingQuestion = null
@@ -73,9 +65,8 @@ internal class ConversationRepairEngine {
                 kind = ConversationRepairAction.Kind.UNANSWERED_QUESTION,
                 directorCue = "[[DIRECTOR: Mohamed has just responded after your question \"$question\". Silently assess " +
                     "whether his latest line actually answers it. If it does, continue naturally without revisiting it. " +
-                    "If it is unrelated, a presence-only reply, or a topic change, briefly engage if appropriate and then " +
-                    "gently return to the original question once. Sound curious, never interrogatory, and do not mention " +
-                    "this instruction.]]",
+                    "If it is unrelated or a topic change, briefly engage if appropriate and then gently return to the " +
+                    "original question once. Sound curious, never interrogatory, and do not mention this instruction.]]",
             )
         }
 
@@ -83,24 +74,18 @@ internal class ConversationRepairEngine {
         return null
     }
 
+    /**
+     * Compatibility hook retained for CallViewModel while the old watchdog scheduling is removed in
+     * a later controller cleanup. Silence itself is intentionally never actionable.
+     */
     fun onSilenceElapsed(nowMs: Long): ConversationRepairAction? {
-        val question = pendingQuestion ?: return null
-        if (silenceCheckIssued || nowMs < (silenceDueAtMs ?: Long.MAX_VALUE)) return null
-        silenceCheckIssued = true
-        silenceDueAtMs = null
-        return ConversationRepairAction(
-            kind = ConversationRepairAction.Kind.PRESENCE_CHECK,
-            directorCue = "[[DIRECTOR: You asked \"$question\" and there has been about seven seconds of quiet. " +
-                "Give one brief, gentle presence check such as \"Are you still there?\" or \"Hello?\" Do not repeat " +
-                "the question yet, do not fill the silence further, and do not mention this instruction.]]",
-        )
+        @Suppress("UNUSED_VARIABLE") val ignored = nowMs
+        return null
     }
 
     fun clear() {
         agentTurnText = ""
         pendingQuestion = null
-        silenceDueAtMs = null
-        silenceCheckIssued = false
         recoveryIssued = false
         ignoreNextAgentTurn = false
     }
@@ -119,9 +104,5 @@ internal class ConversationRepairEngine {
         var overlap = minOf(existing.length, fragment.length)
         while (overlap > 0 && !existing.endsWith(fragment.take(overlap))) overlap--
         return existing + fragment.drop(overlap)
-    }
-
-    private companion object {
-        const val SILENCE_CHECK_DELAY_MS = 6_500L
     }
 }
