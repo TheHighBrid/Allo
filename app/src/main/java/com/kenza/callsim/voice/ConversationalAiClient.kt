@@ -9,6 +9,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** ElevenLabs Conversational AI provider (premium option, Kenza's cloned voice). */
 class ElevenLabsProvider(
@@ -30,6 +31,7 @@ class ElevenLabsProvider(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
     private val timing = LiveProviderTiming("elevenlabs")
+    private val lifecycleEpoch = AtomicLong(0L)
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var closedByUser = false
@@ -38,6 +40,7 @@ class ElevenLabsProvider(
     @Volatile private var publicFallbackHint: String? = null
 
     override fun start() {
+        val epoch = lifecycleEpoch.incrementAndGet()
         timing.connectionStarted()
         closedByUser = false
         sessionReady = false
@@ -70,12 +73,19 @@ class ElevenLabsProvider(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "signed url failed", e)
-                listener.onClosed(sanitizeStartFailure(e), fatal = true)
+                if (isLifecycleActive(epoch)) {
+                    listener.onClosed(sanitizeStartFailure(e), fatal = true)
+                }
                 return@Thread
             }
-            connect(url)
+            // A signed-URL request may outlive a hang-up. Never resurrect a stopped session.
+            if (!isLifecycleActive(epoch)) return@Thread
+            connect(url, epoch)
         }.start()
     }
+
+    private fun isLifecycleActive(epoch: Long): Boolean =
+        !closedByUser && lifecycleEpoch.get() == epoch
 
     private fun publicUrl(aid: String): String = "$BASE?agent_id=$aid"
 
@@ -99,17 +109,24 @@ class ElevenLabsProvider(
         }
     }
 
-    private fun connect(url: String) {
+    private fun connect(url: String, epoch: Long) {
+        if (!isLifecycleActive(epoch)) return
         val req = Request.Builder().url(url).build()
-        socket = http.newWebSocket(req, object : WebSocketListener() {
+        val webSocket = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (!isLifecycleActive(epoch)) {
+                    webSocket.close(1000, "stopped")
+                    return
+                }
                 timing.socketConnected()
                 Log.i(TAG, "socket open")
                 webSocket.send(buildInitMessage())
                 listener.onConnected()
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) = handle(webSocket, text)
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (isLifecycleActive(epoch)) handle(webSocket, text)
+            }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
@@ -117,7 +134,7 @@ class ElevenLabsProvider(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "socket closed $code $reason")
-                if (!closedByUser) {
+                if (isLifecycleActive(epoch)) {
                     val fallback = publicFallbackHint
                     val resolvedReason = if (
                         !sessionReady && fallback != null &&
@@ -132,7 +149,7 @@ class ElevenLabsProvider(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "socket failure", t)
-                if (closedByUser) return
+                if (!isLifecycleActive(epoch)) return
                 val code = response?.code ?: 0
                 val fallback = publicFallbackHint
                 val rawDetail = response?.let { "HTTP $code" } ?: t.message ?: "connection failed"
@@ -143,6 +160,7 @@ class ElevenLabsProvider(
                 listener.onClosed(detail, fatal = code in 400..499 || detail === fallback)
             }
         })
+        if (isLifecycleActive(epoch)) socket = webSocket else webSocket.cancel()
     }
 
     private fun buildInitMessage(): String {
@@ -222,8 +240,10 @@ class ElevenLabsProvider(
     override fun stop() {
         timing.teardownStarted()
         closedByUser = true
-        runCatching { socket?.close(1000, "bye") }
+        lifecycleEpoch.incrementAndGet()
+        val previous = socket
         socket = null
+        runCatching { previous?.close(1000, "bye") }
         timing.teardownComplete()
     }
 
