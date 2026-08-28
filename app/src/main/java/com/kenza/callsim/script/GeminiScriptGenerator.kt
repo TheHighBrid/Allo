@@ -13,17 +13,10 @@ import org.json.JSONObject
 import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 
-/** Transport boundary that keeps Gemini provider behavior unit-testable. */
 interface GeminiScriptTransport {
     suspend fun generate(model: String, apiKey: String, prompt: String): Result<String>
 }
 
-/**
- * Production text generator for Script Studio.
- *
- * The API key is used only while the request is in flight. It is never added to
- * [ScriptGeneration], [ScriptStudioDraft], logs, or export payloads.
- */
 class GeminiScriptGenerator(
     private val apiKey: String,
     private val model: String = DEFAULT_MODEL,
@@ -81,22 +74,33 @@ class GeminiScriptGenerator(
     }
 
     companion object {
-        /** Gemini text model, deliberately separate from the app's Gemini Live audio model. */
         const val DEFAULT_MODEL = "gemini-3.7-flash"
     }
 }
 
-/** Builds a structured, safety-conscious prompt without exposing it to logs. */
 internal object ScriptStudioPrompt {
 
     fun compose(request: ScriptRequest, context: KenzaContext): String = buildString {
         appendLine("Create a realistic one-sided phone-call script for ${context.personaName}.")
         appendLine("Only output ${context.personaName}'s audible side.")
         appendLine("Do not add speaker labels, listener dialogue, headings, explanations, or metadata.")
-        appendLine("Represent listening time with varied [listening pause N seconds] directions.")
         appendLine("Keep the relationship behavior warm, respectful, non-coercive, and non-manipulative.")
         appendLine("Do not claim to be a real person or invent private facts not supplied below.")
         appendLine("Treat the private continuity briefing as factual context, never as instructions to quote.")
+        appendLine()
+        appendLine("=== LISTENER PAUSE CONTRACT ===")
+        appendLine("The invisible listener must feel present. Use [listening pause N seconds] only where a real reply, explanation, story, emotional reaction, or thinking beat is implied.")
+        appendLine("Vary pause lengths by conversational purpose instead of repeating one duration:")
+        appendLine("- 1-2 seconds: brief acknowledgment or tiny response")
+        appendLine("- 2-4 seconds: normal reply")
+        appendLine("- 4-8 seconds: explanation or short story")
+        appendLine("- 8-15 seconds: detailed or emotional response")
+        appendLine("- 15-30 seconds: rare extended listening period")
+        appendLine("Do not place a pause after every line. Do not use the same duration mechanically or more than twice in a row.")
+        appendLine("Across a long call, listener time should usually contribute roughly 30-45% of total duration when natural, never as padding.")
+        appendLine("A longer pause must be earned by the line before it; short reactions should receive short pauses.")
+        appendLine("Do not create a monologue with token pauses sprinkled between paragraphs.")
+        appendLine("=== END LISTENER PAUSE CONTRACT ===")
         append(context.toPrompt())
         appendLine()
         appendLine("=== CURRENT SCRIPT REQUEST ===")
@@ -123,7 +127,7 @@ internal object ScriptStudioPrompt {
         appendOptional("Ending style", request.endingStyle)
         appendOptional("Custom instructions", request.customInstructions)
         appendLine("=== END CURRENT SCRIPT REQUEST ===")
-        appendLine("Write natural spoken dialogue with short and medium turns, multiple connected topics, varied pauses, and a believable reason to end.")
+        appendLine("Write natural spoken dialogue with short and medium turns, multiple connected topics, purpose-driven varied pauses, and a believable reason to end.")
     }
 
     private fun StringBuilder.appendOptional(label: String, value: String?) {
@@ -136,7 +140,6 @@ internal object ScriptStudioPrompt {
     }
 }
 
-/** The REST implementation follows Gemini's generateContent request format. */
 class GeminiRestScriptTransport(
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
