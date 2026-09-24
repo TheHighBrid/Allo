@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.OutlinedButton
@@ -35,6 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kenza.callsim.script.ScriptProjectStore
 import com.kenza.callsim.script.ScriptProjectSummary
+import com.kenza.callsim.ui.components.IosFooterNote
+import com.kenza.callsim.ui.components.IosGroupedCard
+import com.kenza.callsim.ui.components.IosNavHeader
+import com.kenza.callsim.ui.components.IosSectionCaption
 import com.kenza.callsim.ui.theme.IOSColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -77,39 +82,21 @@ fun ScriptStudioHubScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 18.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            TextButton(onClick = onBack) { Text("Back") }
-            Text(
-                "Script Studio",
-                color = Color.White,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            TextButton(
-                onClick = {
-                    val id = projects.create()
-                    projects.activate(id)
-                    editorOpen = true
-                },
-            ) { Text("New") }
-        }
-
-        Text(
-            "Your scripts",
-            color = Color.White,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 12.dp),
+        IosNavHeader(
+            title = "Script Studio",
+            onBack = onBack,
+            trailing = {
+                TextButton(
+                    onClick = {
+                        val id = projects.create()
+                        projects.activate(id)
+                        editorOpen = true
+                    },
+                ) { Text("New", color = IOSColors.Blue) }
+            },
         )
-        Text(
+        IosFooterNote(
             "Projects save automatically on this device. Open one to continue exactly where you left it.",
-            color = IOSColors.SecondaryLabel,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 5.dp, bottom = 18.dp),
         )
 
         Button(
@@ -118,18 +105,16 @@ fun ScriptStudioHubScreen(
                 projects.activate(id)
                 editorOpen = true
             },
+            colors = ButtonDefaults.buttonColors(containerColor = IOSColors.Green),
             modifier = Modifier.fillMaxWidth().height(50.dp),
         ) {
-            Text("Create new script")
+            Text("Create new script", color = Color.White, fontWeight = FontWeight.SemiBold)
         }
 
         Spacer(Modifier.height(18.dp))
+        IosSectionCaption("Your scripts")
         if (library.isEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = IOSColors.SecondaryBackground),
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            IosGroupedCard {
                 Column(Modifier.padding(18.dp)) {
                     Text("No scripts yet", color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -195,7 +180,7 @@ private fun ScriptProjectCard(
     var title by remember(project.id, project.title) { mutableStateOf(project.title) }
     Card(
         colors = CardDefaults.cardColors(containerColor = IOSColors.SecondaryBackground),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(16.dp)) {

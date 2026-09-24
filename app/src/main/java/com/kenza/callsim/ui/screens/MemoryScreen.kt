@@ -47,6 +47,9 @@ import com.kenza.callsim.memory.MemoryOwner
 import com.kenza.callsim.memory.MemoryPolicy
 import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.memory.PersonalityProfiles
+import com.kenza.callsim.ui.components.IosFooterNote
+import com.kenza.callsim.ui.components.IosNavHeader
+import com.kenza.callsim.ui.components.IosSectionCaption
 import com.kenza.callsim.ui.theme.IOSColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,33 +85,13 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(56.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = IOSColors.Blue,
-                    modifier = Modifier.size(28.dp).clickable(onClick = onBack)
-                )
-                Spacer(Modifier.size(12.dp))
-            }
-            Column {
-                Text("Kenza Memory", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Encrypted on this device. Raw call transcripts are not kept.",
-                    color = IOSColors.SecondaryLabel,
-                    fontSize = 12.sp,
-                )
-            }
-        }
+        Spacer(Modifier.height(48.dp))
+        IosNavHeader(title = "Memory", onBack = onBack)
+        IosFooterNote("Encrypted on this device. Raw call transcripts are not kept.")
 
-        Spacer(Modifier.height(24.dp))
-        SectionTitle("Personality and relationship profiles")
-        Text(
+        IosSectionCaption("Personality and relationship")
+        IosFooterNote(
             "These stable profiles are loaded automatically before every outgoing, incoming, or scheduled call.",
-            color = IOSColors.SecondaryLabel,
-            fontSize = 13.sp,
         )
         ProfileField("About Kenza", kenzaProfile, { kenzaProfile = it }, "Personality, background, habits, communication style")
         ProfileField("About Mohamed", listenerProfile, { listenerProfile = it }, "Work, interests, preferences, current priorities")
@@ -135,7 +118,7 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
         }
 
         Spacer(Modifier.height(30.dp))
-        SectionTitle("Add an important memory")
+        IosSectionCaption("Add an important memory")
         OutlinedTextField(
             value = newMemory,
             onValueChange = { newMemory = it },
@@ -186,7 +169,7 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
         }
 
         Spacer(Modifier.height(30.dp))
-        SectionTitle("Recent calls")
+        IosSectionCaption("Recent calls")
         if (snapshot.calls.isEmpty()) {
             EmptyText("Call summaries will appear here after a real two-way call ends.")
         } else {
@@ -209,7 +192,7 @@ fun MemoryScreen(onBack: (() -> Unit)? = null) {
         }
 
         Spacer(Modifier.height(24.dp))
-        SectionTitle("Durable memories")
+        IosSectionCaption("Durable memories")
         val sortedMemories = snapshot.items.sortedByDescending {
             MemoryPolicy.score(it, System.currentTimeMillis())
         }
@@ -450,11 +433,6 @@ private fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier, onC
     }
 }
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(8.dp))
-}
 
 @Composable
 private fun EmptyText(text: String) {

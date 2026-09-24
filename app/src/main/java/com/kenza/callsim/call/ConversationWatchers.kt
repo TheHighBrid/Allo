@@ -26,13 +26,25 @@ internal object ConversationEndDetector {
         "i've gotta go", "i have to go", "i'll let you go", "let you go",
         "see you", "see ya", "call you later", "i'll call you later", "sleep well",
         "take care", "later gator",
+        // Careful expansions: complete short closers only (not topic sentences).
+        "gotta run", "i gotta run", "i've gotta run", "i have to run",
+        "catch you later", "catch ya later", "ttyl",
+        "i'm heading out", "im heading out", "heading out",
+        "have a good night", "have a good one", "i'll talk to you later",
     )
 
     private val angryHangupPhrases = setOf(
-        "i'm hanging up", "im hanging up", "i am hanging up", "i'm done", "im done",
-        "we're done", "were done", "we are done", "don't call me", "dont call me",
-        "do not call me", "lose my number", "leave me alone", "forget it",
-        "don't ever call me", "dont ever call me", "do not ever call me", "i'm out", "im out",
+        "i'm hanging up", "im hanging up", "i am hanging up",
+        "i'm hanging up now", "im hanging up now", "i am hanging up now",
+        "hanging up", "hanging up now",
+        "i'm done", "im done",
+        "we're done", "were done", "we are done",
+        "we're through", "were through", "we are through",
+        "don't call me", "dont call me", "do not call me",
+        "lose my number", "leave me alone", "forget it",
+        "don't ever call me", "dont ever call me", "do not ever call me",
+        "i'm out", "im out",
+        "this conversation is over", "this call is over",
     )
 
     fun isFarewell(text: String): Boolean {
@@ -40,6 +52,7 @@ internal object ConversationEndDetector {
             .removePrefix("okay ")
             .removePrefix("ok ")
             .removePrefix("alright ")
+            .removePrefix("alright then ")
         return normalized in farewellPhrases || farewellPhrases.any { phrase ->
             normalized.removeSuffix(" babe") == phrase ||
                 normalized.removeSuffix(" baby") == phrase ||

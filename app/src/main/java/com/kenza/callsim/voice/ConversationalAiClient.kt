@@ -225,6 +225,7 @@ class ElevenLabsProvider(
         val s = socket ?: return
         val b64 = Base64.encodeToString(pcm16le16k, Base64.NO_WRAP)
         s.send("""{"user_audio_chunk":"$b64"}""")
+        listener.onMicPacketQueued(s.queueSize())
     }
 
     override fun sendText(text: String) {
@@ -236,6 +237,8 @@ class ElevenLabsProvider(
                 .toString()
         )
     }
+
+    override fun timingSnapshot(): LiveProviderTimingSnapshot = timing.snapshot()
 
     override fun stop() {
         timing.teardownStarted()

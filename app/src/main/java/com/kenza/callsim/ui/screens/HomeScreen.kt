@@ -116,7 +116,7 @@ fun HomeScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(IOSColors.SecondaryBackground)
                     .clickable(role = Role.Button, onClick = onOpenScriptStudio)
                     .semantics { contentDescription = "Open Script Studio" }

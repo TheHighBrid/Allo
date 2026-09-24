@@ -81,4 +81,28 @@ class ConversationRepairEngineTest {
         assertEquals(ConversationRepairAction.Kind.ABRUPT_FAREWELL, action?.kind)
         assertTrue(action?.directorCue?.contains("abruptly") == true)
     }
+
+    @Test
+    fun `treats an angry hangup as an abrupt farewell when a question is pending`() {
+        val engine = ConversationRepairEngine()
+        engine.onAgentText("What time should we meet?")
+        engine.onAgentTurnComplete(nowMs = 0)
+
+        val action = engine.onUserText("I'm hanging up")
+
+        assertEquals(ConversationRepairAction.Kind.ABRUPT_FAREWELL, action?.kind)
+        assertTrue(action?.directorCue?.contains("composed goodbye") == true)
+    }
+
+    @Test
+    fun `softens recovery when the user likely answered the pending question`() {
+        val engine = ConversationRepairEngine()
+        engine.onAgentText("What time should we meet?")
+        engine.onAgentTurnComplete(nowMs = 0)
+
+        val action = engine.onUserText("Around 7 pm")
+
+        assertEquals(ConversationRepairAction.Kind.UNANSWERED_QUESTION, action?.kind)
+        assertTrue(action?.directorCue?.contains("may already answer") == true)
+    }
 }

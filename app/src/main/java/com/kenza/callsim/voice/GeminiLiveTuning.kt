@@ -11,7 +11,11 @@ object GeminiLiveTuning {
     /** Preserve a tiny amount of speech before server VAD detects its start. */
     const val VAD_PREFIX_PADDING_MS = 20
 
-    /** Natural phone cadence without the two-second "hold queue" effect. */
+    /**
+     * Natural phone cadence without the two-second "hold queue" effect.
+     * Kept at 600 ms deliberately: barge-in/silence retunes (#60) require
+     * measured device evidence before changing this further.
+     */
     const val VAD_SILENCE_DURATION_MS = 600
 
     /** Keep client playback buffering short so streamed speech starts promptly. */
