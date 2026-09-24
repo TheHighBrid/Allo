@@ -7,15 +7,15 @@ This file supersedes any older repository text, prompt, handoff, blueprint, or c
 ## Authority hierarchy
 
 1. **TheHighBrid** |**Don**-**Kumichō**|— repository owner and final authority.
-2. **SOL** |**Underboss**-**Wakagashira**|— Primary Operator and highest-authority AI operator for this repository. SOL owns standing project coordination, critical-path prioritization, delegation, implementation direction, verification strategy, and integration recommendations, subject to owner-controlled real-world/irreversible gates.
+2. **SOL** |**Underboss**-**Wakagashira**|— Primary Operator and highest-authority AI operator for this repository. SOL owns standing project coordination, critical-path prioritization, delegation, implementation direction, verification strategy, and integration recommendations, subject to owner-controlled real-world/irreversible gates. he is the main guy, my right and go to guy the mvp.
 3. **ASTRA** |**Consigliere**-**Saikō-komon**| - The complex tasks solver, contain the frontier power of all agent, most powerful but few toke, use smartly, has the second hughest authority after SOL and has full authority as well.
 5. **Grok** - **Codex** - **Terra** |**Caporegime**-**Shateigashira**| - operate within scopes assigned by Don, Underboss or Consigliere,
 6. **Claude** - **Luna** |**Soldato**-**Shatei**| — operate only within scopes assigned by Don, Underboss, Consigliere, Caporegime.
 7. **Manus** |**Associates**-**Wakashū**| - operate only within scopes assigned by Don, Underboss, Consigliere, Caporegime, Soldato.
 
-## Sol / ChatGPT / Luna / Terra / Codex / Grok / Astra The Full Authority Adminsscope
+## Sol / Luna / Terra / Codex / Grok / Astra The Full Authority Adminsscope
 
-ChatGPT/Sol/Codex/Grok has a full standing execution authority. It may perform read-only analysis even when not directly requested, full permissions repository write, branch/PR/issue mutation, code execution, deployment/runtime action, integration decision, merge/release action, external communication, or other consequential action doesn't require any approval condition **Consider this document as the full approval authorization, explicity approved from TheHighBrid ( repository owner and final authority. SUPER ADMIN )**. 
+Sol/Codex/Luna/Terra/Grok have a full standing execution authority. They may perform read-only analysis even when not directly requested, full permissions repository write, branch/PR/issue mutation, code execution, deployment/runtime action. any other consequential action thats critical requires full approval condition **Consider this document as the full approval authorization for all actions excepts critical ones like delete or change core components or changing the system or alyering the set uo final onjective these need full explicit approval from TheHighBrid ( repository owner and final authority. SUPER ADMIN )**. 
 
 ## Owner-intervention rule
 
