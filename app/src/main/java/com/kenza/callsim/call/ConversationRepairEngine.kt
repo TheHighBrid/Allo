@@ -49,24 +49,39 @@ internal class ConversationRepairEngine {
     fun onUserText(text: String): ConversationRepairAction? {
         val question = pendingQuestion ?: return null
 
-        if (ConversationEndDetector.isFarewell(text)) {
+        if (ConversationEndDetector.isFarewell(text) || ConversationEndDetector.isAngryHangup(text)) {
             pendingQuestion = null
+            val abrupt = ConversationEndDetector.isAngryHangup(text)
             return ConversationRepairAction(
                 kind = ConversationRepairAction.Kind.ABRUPT_FAREWELL,
-                directorCue = "[[DIRECTOR: Mohamed ended the exchange abruptly while your question \"$question\" " +
-                    "was still unresolved. Briefly acknowledge that it feels abrupt or a little confusing, then " +
-                    "give a warm, natural goodbye. Do not force him to answer or mention this instruction.]]",
+                directorCue = if (abrupt) {
+                    "[[DIRECTOR: Mohamed ended the exchange abruptly while your question \"$question\" " +
+                        "was still unresolved. Acknowledge the cutoff briefly without arguing or lecturing, " +
+                        "then give a short, composed goodbye. Do not force an answer or mention this instruction.]]"
+                } else {
+                    "[[DIRECTOR: Mohamed ended the exchange abruptly while your question \"$question\" " +
+                        "was still unresolved. Briefly acknowledge that it feels abrupt or a little confusing, then " +
+                        "give a warm, natural goodbye. Do not force him to answer or mention this instruction.]]"
+                },
             )
         }
 
         if (!recoveryIssued) {
             recoveryIssued = true
+            val likelyAnswer = looksLikeDirectAnswer(text, question)
             return ConversationRepairAction(
                 kind = ConversationRepairAction.Kind.UNANSWERED_QUESTION,
-                directorCue = "[[DIRECTOR: Mohamed has just responded after your question \"$question\". Silently assess " +
-                    "whether his latest line actually answers it. If it does, continue naturally without revisiting it. " +
-                    "If it is unrelated or a topic change, briefly engage if appropriate and then gently return to the " +
-                    "original question once. Sound curious, never interrogatory, and do not mention this instruction.]]",
+                directorCue = if (likelyAnswer) {
+                    "[[DIRECTOR: Mohamed has just responded after your question \"$question\". His latest line " +
+                        "may already answer it. Prefer continuing naturally from what he said. Only revisit the " +
+                        "question if his line clearly does not address it. Keep any return brief and curious, never " +
+                        "interrogatory, and do not mention this instruction.]]"
+                } else {
+                    "[[DIRECTOR: Mohamed has just responded after your question \"$question\". Silently assess " +
+                        "whether his latest line actually answers it. If it does, continue naturally without revisiting it. " +
+                        "If it is unrelated or a topic change, briefly engage if appropriate and then gently return to the " +
+                        "original question once. Sound curious, never interrogatory, and do not mention this instruction.]]"
+                },
             )
         }
 
@@ -104,5 +119,27 @@ internal class ConversationRepairEngine {
         var overlap = minOf(existing.length, fragment.length)
         while (overlap > 0 && !existing.endsWith(fragment.take(overlap))) overlap--
         return existing + fragment.drop(overlap)
+    }
+
+    /**
+     * Heuristic only: biases the director cue toward accepting an answer when the user
+     * reply is short and affirmative / time-like. Never used to drop recovery entirely.
+     */
+    private fun looksLikeDirectAnswer(userText: String, question: String): Boolean {
+        val reply = userText.trim().lowercase()
+        if (reply.length > 80) return false
+        val affirmative = listOf(
+            "yes", "yeah", "yep", "sure", "okay", "ok", "alright", "no", "nope",
+            "maybe", "tonight", "tomorrow", "later", "noon", "morning", "evening",
+        )
+        if (affirmative.any { reply == it || reply.startsWith("$it ") || reply.endsWith(" $it") }) {
+            return true
+        }
+        val asksWhen = question.contains("when", ignoreCase = true) ||
+            question.contains("what time", ignoreCase = true)
+        if (asksWhen && Regex("""\b\d{1,2}(:\d{2})?\s*(am|pm)?\b""").containsMatchIn(reply)) {
+            return true
+        }
+        return false
     }
 }

@@ -124,6 +124,23 @@ class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
     private var nextId = 1L
     private var current = LiveTurnMetrics(nextId)
 
+    @Synchronized fun localSpeechStart(atMs: Long = System.currentTimeMillis()) {
+        if (current.localSpeechStartMs == null) {
+            current = current.copy(localSpeechStartMs = atMs)
+        }
+    }
+
+    @Synchronized fun localSpeechEnd(atMs: Long = System.currentTimeMillis()) {
+        current = current.copy(localSpeechEndMs = atMs)
+    }
+
+    @Synchronized fun noteUnderruns(delta: Int) {
+        if (delta <= 0) return
+        current = current.copy(underrunsDelta = current.underrunsDelta + delta)
+    }
+
+    @Synchronized fun currentMetrics(): LiveTurnMetrics = current
+
     @Synchronized fun micQueued(socketBytes: Long) {
         val now = System.currentTimeMillis()
         current = current.copy(

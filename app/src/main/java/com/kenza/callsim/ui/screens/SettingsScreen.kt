@@ -41,6 +41,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kenza.callsim.config.ProviderType
 import com.kenza.callsim.config.SettingsData
+import com.kenza.callsim.ui.components.IosFooterNote
+import com.kenza.callsim.ui.components.IosGroupedCard
+import com.kenza.callsim.ui.components.IosNavHeader
+import com.kenza.callsim.ui.components.IosSectionCaption
 import com.kenza.callsim.ui.theme.IOSColors
 
 private val FEMALE_VOICES = listOf("Aoede", "Kore", "Leda", "Callirrhoe", "Sulafat", "Vindemiatrix", "Despina", "Autonoe")
@@ -71,38 +75,28 @@ fun SettingsScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        Spacer(Modifier.height(56.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = IOSColors.Blue,
-                modifier = Modifier.size(28.dp).clickable(onClick = onBack)
-            )
-            Spacer(Modifier.size(12.dp))
-            Text("Settings", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-        }
+        Spacer(Modifier.height(48.dp))
+        IosNavHeader(title = "Settings", onBack = onBack)
 
-        Spacer(Modifier.height(20.dp))
-
-        // ---- Provider switch ----
-        Text("Voice engine", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ProviderChip("Gemini · Daily", provider == ProviderType.GEMINI, Modifier.weight(1f)) {
-                provider = ProviderType.GEMINI
-            }
-            ProviderChip("ElevenLabs · Optional", provider == ProviderType.ELEVENLABS, Modifier.weight(1f)) {
-                provider = ProviderType.ELEVENLABS
+        IosSectionCaption("Voice engine")
+        IosGroupedCard {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ProviderChip("Gemini · Daily", provider == ProviderType.GEMINI, Modifier.weight(1f)) {
+                    provider = ProviderType.GEMINI
+                }
+                ProviderChip("ElevenLabs · Optional", provider == ProviderType.ELEVENLABS, Modifier.weight(1f)) {
+                    provider = ProviderType.ELEVENLABS
+                }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
+        IosFooterNote(
             if (provider == ProviderType.GEMINI)
                 "Recommended for everyday calls: free-tier live voice, low latency, full personality, and automatic post-call memory summaries."
             else
                 "Optional compatibility mode for a cloned voice. It is paid and quota-limited, so it is not the recommended daily engine.",
-            color = IOSColors.SecondaryLabel, fontSize = 12.sp
         )
 
         Spacer(Modifier.height(16.dp))
@@ -162,7 +156,7 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        IosSectionCaption("Call identity")
         Field("Contact name", contactName, { contactName = it }, "Kenza", "Shown on the call screen.")
         Field("Personality (system prompt)", persona, { persona = it },
             "How she should talk", "Loaded with Kenza's encrypted memory before every call.")

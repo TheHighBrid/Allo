@@ -309,13 +309,21 @@ class PcmPlayer(
         val epoch = queueEpoch.get()
         val writeBytes = sampleRate * GeminiLiveTuning.PLAYBACK_WRITE_CHUNK_MS /
             1_000 * AudioConfig.BYTES_PER_SAMPLE
-        var offset = 0
-        while (offset < pcm.size) {
-            val end = minOf(offset + writeBytes, pcm.size)
-            val size = end - offset
-            queuedBytes.addAndGet(size)
-            queue.offer(QueuedPcm(epoch, pcm.copyOfRange(offset, end)))
-            offset = end
+        // Bound each queued slice to PLAYBACK_WRITE_CHUNK_MS so flush/interrupt can
+        // discard remaining work quickly. Small packets get one copy instead of
+        // needless copyOfRange slicing.
+        if (pcm.size <= writeBytes) {
+            queuedBytes.addAndGet(pcm.size)
+            queue.offer(QueuedPcm(epoch, pcm.copyOf()))
+        } else {
+            var offset = 0
+            while (offset < pcm.size) {
+                val end = minOf(offset + writeBytes, pcm.size)
+                val size = end - offset
+                queuedBytes.addAndGet(size)
+                queue.offer(QueuedPcm(epoch, pcm.copyOfRange(offset, end)))
+                offset = end
+            }
         }
 
         val pendingMs = queuedDurationMs() + GeminiLiveTuning.OUTPUT_BUFFER_MS +

@@ -19,6 +19,7 @@ import com.kenza.callsim.schedule.ScheduledCallRuntime
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.LiveTurnTelemetry
+import com.kenza.callsim.voice.LocalSpeechEnergyTracker
 import com.kenza.callsim.voice.MicRecorder
 import com.kenza.callsim.voice.PcmPlayer
 import com.kenza.callsim.voice.TranscriptAssembler
@@ -52,6 +53,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var mic: MicRecorder? = null
     private var player: PcmPlayer? = null
     private var telemetry = LiveTurnTelemetry(false)
+    private val speechEnergy = LocalSpeechEnergyTracker()
     private val transcriptAssembler = TranscriptAssembler()
     private val conversationRepair = ConversationRepairEngine()
 
@@ -224,6 +226,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
         configureAudioRouting()
         telemetry = LiveTurnTelemetry(config.diagnosticsEnabled)
+        speechEnergy.reset()
 
         val ai = buildProvider(object : VoiceProvider.Listener {
             override fun onConnected() {
@@ -236,8 +239,18 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                     player = PcmPlayer(outputSampleRate, telemetry).also { it.start() }
                 }
                 if (mic == null) {
+                    speechEnergy.reset()
                     mic = MicRecorder(
-                        onChunk = { chunk -> client?.sendAudio(chunk) },
+                        onChunk = { chunk ->
+                            when (speechEnergy.onPcm(chunk)) {
+                                LocalSpeechEnergyTracker.Event.START ->
+                                    telemetry.localSpeechStart()
+                                LocalSpeechEnergyTracker.Event.END ->
+                                    telemetry.localSpeechEnd()
+                                null -> Unit
+                            }
+                            client?.sendAudio(chunk)
+                        },
                         onError = { msg -> handleDisconnect("Microphone: $msg", fatal = true) },
                         onStreaming = { _state.update { it.copy(micStreaming = true) } }
                     ).also {
@@ -270,9 +283,14 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(lastAgentText = text) }
             }
             override fun onInterrupted() {
+                if (speechEnergy.forceEnd() == LocalSpeechEnergyTracker.Event.END) {
+                    telemetry.localSpeechEnd()
+                }
                 telemetry.interrupted()
                 silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcript += transcriptAssembler.commit()
+                // Flush uses PLAYBACK_WRITE_CHUNK_MS-sized queue epochs so barge-in
+                // discards unsounded audio without waiting on a blocking write.
                 player?.flush()
                 _state.update { it.copy(activity = AgentActivity.LISTENING) }
             }
@@ -656,7 +674,12 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         endCallJob?.cancel(); endCallJob = null
         silenceRepairJob?.cancel(); silenceRepairJob = null
         conversationRepair.clear()
+        if (speechEnergy.forceEnd() == LocalSpeechEnergyTracker.Event.END) {
+            telemetry.localSpeechEnd()
+        }
+        speechEnergy.reset()
         mic?.stop(); mic = null
+        // Provider stop records LiveProviderTiming teardownStarted/Complete.
         client?.stop(); client = null
         player?.stop(); player = null
         restoreAudioRouting()

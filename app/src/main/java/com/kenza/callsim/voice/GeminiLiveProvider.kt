@@ -352,6 +352,8 @@ class GeminiLiveProvider(
 
     private fun isCurrent(connectionId: Int): Boolean = activeConnectionId == connectionId
 
+    override fun timingSnapshot(): LiveProviderTimingSnapshot = timing.snapshot()
+
     override fun stop() {
         timing.teardownStarted()
         closedByUser = true

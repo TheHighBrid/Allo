@@ -14,6 +14,9 @@ interface VoiceProvider {
     fun sendAudio(pcm16le16k: ByteArray)
     fun stop()
 
+    /** Content-free connection/speech/teardown timings when the provider records them. */
+    fun timingSnapshot(): LiveProviderTimingSnapshot? = null
+
     /**
      * Inject a text turn to prompt a spoken reply (e.g. a silence check-in).
      * Only supported by providers that accept client text; no-op otherwise.
