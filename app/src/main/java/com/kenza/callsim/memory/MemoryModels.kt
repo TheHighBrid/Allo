@@ -4,7 +4,25 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
+// Add NARRATIVE to MemoryKind enum
+enum class MemoryKind {
+    FACT, PREFERENCE, EVENT, PLAN, RELATIONSHIP, GOAL, PERSONALITY, CORRECTION, NARRATIVE
+}
 
+// Update score function in MemoryPolicy
+fun score(item: MemoryItem, now: Long): Double {
+    val ageDays = (now - item.updatedAt).coerceAtLeast(0) / 86_400_000.0
+    val recency = (30.0 - ageDays.coerceAtMost(30.0)) / 30.0
+    
+    var baseScore = (if (item.pinned) 100.0 else 0.0) +
+        item.importance * 12.0 + item.confidence * 8.0 + recency * 5.0 -
+        (if (item.done) 10.0 else 0.0)
+
+    // Boost Narratives to keep them as long-term anchors
+    if (item.kind == MemoryKind.NARRATIVE) baseScore += 20.0
+    
+    return baseScore
+}
 /** Categories used to organize durable memory across calls. */
 enum class MemoryKind {
     FACT, PREFERENCE, EVENT, PLAN, RELATIONSHIP, GOAL, PERSONALITY, CORRECTION
