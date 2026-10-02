@@ -294,11 +294,26 @@ class MemoryStore(context: Context) {
     }
 
     private fun prune(items: List<MemoryItem>): List<MemoryItem> {
-        val now = System.currentTimeMillis()
-        return items
-            .filter { it.text.isNotBlank() }
-            .sortedByDescending { MemoryPolicy.score(it, now) }
-            .take(MAX_MEMORIES)
+    val now = System.currentTimeMillis()
+    if (items.size <= MAX_MEMORIES) return items
+
+    val sorted = items.sortedByDescending { MemoryPolicy.score(it, now) }
+    val keep = sorted.take(MAX_MEMORIES)
+    val cold = sorted.drop(MAX_MEMORIES).filter { !it.pinned }
+
+    if (cold.isNotEmpty()) {
+        // Trigger the compression process
+        // In a real app, use a CoroutineScope (e.g., viewModelScope or a custom scope)
+        scope.launch {
+            val narrative = compressor.compress(cold)
+            if (narrative != null) {
+                addAll(listOf(narrative))
+            }
+        }
+    }
+
+    return keep
+}
     }
 
     private companion object {
