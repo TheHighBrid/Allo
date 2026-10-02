@@ -19,6 +19,8 @@ data class SettingsData(
     val elevenInjectMemory: Boolean,
     val contactName: String,
     val persona: String,
+    val weatherApiKey: String,
+    val userCity: String,
 )
 
 /**
@@ -172,6 +174,14 @@ class ConfigRepository(context: Context) {
     var consentAccepted: Boolean
         get() = prefs.getBoolean(KEY_CONSENT, false)
         set(value) = prefs.edit().putBoolean(KEY_CONSENT, value).apply()
+        //Implementation using OpenWeatherMap (recommended). This provider checks for specific weather codes (Rain, Snow, Storm) to trigger a 'Care' call.
+    var weatherApiKey: String
+        get() = prefs.getString("weather_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("weather_api_key", value).apply()
+
+    var userCity: String
+        get() = prefs.getString("user_city", "Ottawa") ?: "Ottawa"
+        set(value) = prefs.edit().putString("user_city", value).apply()   
 
     /** Content-free timing records are opt-in even though they only use Logcat. */
     var diagnosticsEnabled: Boolean
