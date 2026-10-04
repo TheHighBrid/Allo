@@ -87,4 +87,39 @@ class MemoryPolicyTest {
 
         assertTrue(MemoryPolicy.corrected(item, "   ", 200L) == null)
     }
+
+    @Test
+    fun narrativeRanksAboveOtherwiseEqualFact() {
+        val now = 1_000_000L
+        val fact = MemoryItem(id = "f", kind = MemoryKind.FACT, text = "A", createdAt = now)
+        val narrative = fact.copy(id = "n", kind = MemoryKind.NARRATIVE)
+        assertEquals(
+            MemoryPolicy.NARRATIVE_SCORE_BOOST,
+            MemoryPolicy.score(narrative, now) - MemoryPolicy.score(fact, now),
+            1e-9,
+        )
+    }
+
+    @Test
+    fun retentionKeepsBestAndOffersOnlyUnpinnedOverflowForCompression() {
+        val now = 1_000_000L
+        fun item(id: String, importance: Int, pinned: Boolean = false, text: String = id) = MemoryItem(
+            id = id, kind = MemoryKind.FACT, text = text, createdAt = now,
+            importance = importance, pinned = pinned,
+        )
+        val split = MemoryPolicy.retention(
+            listOf(
+                item("low", 1),
+                item("high", 5),
+                item("blank", 5, text = "  "),
+                item("mid", 3),
+                item("pinnedLow", 1, pinned = true),
+            ),
+            now = now,
+            max = 2,
+        )
+        // Pinned items score +100, so they are retained ahead of everything else.
+        assertEquals(listOf("pinnedLow", "high"), split.keep.map { it.id })
+        assertEquals(listOf("mid", "low"), split.cold.map { it.id })
+    }
 }

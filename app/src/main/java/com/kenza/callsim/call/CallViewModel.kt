@@ -698,6 +698,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         elevenInjectMemory = config.elevenInjectMemory,
         contactName = config.contactName,
         persona = config.personaPrompt,
+        weatherApiKey = config.weatherApiKey,
+        userCity = config.userCity,
     )
 
     fun saveSettings(s: SettingsData) {
@@ -711,6 +713,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         config.elevenInjectMemory = s.elevenInjectMemory
         config.contactName = s.contactName
         config.personaPrompt = s.persona
+        config.weatherApiKey = s.weatherApiKey
+        config.userCity = s.userCity
         _state.update {
             it.copy(contactName = config.contactName, isConfigured = config.isConfigured)
         }

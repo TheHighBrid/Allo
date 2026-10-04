@@ -174,14 +174,20 @@ class ConfigRepository(context: Context) {
     var consentAccepted: Boolean
         get() = prefs.getBoolean(KEY_CONSENT, false)
         set(value) = prefs.edit().putBoolean(KEY_CONSENT, value).apply()
-        //Implementation using OpenWeatherMap (recommended). This provider checks for specific weather codes (Rain, Snow, Storm) to trigger a 'Care' call.
-    var weatherApiKey: String
-        get() = prefs.getString("weather_api_key", "") ?: ""
-        set(value) = prefs.edit().putString("weather_api_key", value).apply()
 
+    // ---- Context triggers (weather / city) ----
+    /**
+     * OpenWeatherMap API key for the weather "care call" trigger. Blank disables the trigger;
+     * no weather request is ever made without a key.
+     */
+    var weatherApiKey: String
+        get() = prefs.getString(KEY_WEATHER_API, null).orEmpty()
+        set(value) = prefs.edit().putString(KEY_WEATHER_API, value.trim()).apply()
+
+    /** City used for local context such as weather. */
     var userCity: String
-        get() = prefs.getString("user_city", "Ottawa") ?: "Ottawa"
-        set(value) = prefs.edit().putString("user_city", value).apply()   
+        get() = prefs.getString(KEY_USER_CITY, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_USER_CITY
+        set(value) = prefs.edit().putString(KEY_USER_CITY, value.trim()).apply()
 
     /** Content-free timing records are opt-in even though they only use Logcat. */
     var diagnosticsEnabled: Boolean
@@ -203,6 +209,9 @@ class ConfigRepository(context: Context) {
         const val KEY_PERSONA_VERSION = "persona_version"
         const val KEY_CONSENT = "consent_accepted"
         const val KEY_DIAGNOSTICS = "live_diagnostics"
+        const val KEY_WEATHER_API = "weather_api_key"
+        const val KEY_USER_CITY = "user_city"
+        const val DEFAULT_USER_CITY = "Ottawa"
 
         /** Bump whenever defaultPersona() changes so stale saved copies are dropped. */
         const val CURRENT_PERSONA_VERSION = 6

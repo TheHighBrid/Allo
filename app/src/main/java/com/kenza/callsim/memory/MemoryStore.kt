@@ -1,6 +1,10 @@
 package com.kenza.callsim.memory
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -16,6 +20,10 @@ class MemoryStore(context: Context) {
     private val appContext = context.applicationContext
     private val storage = SecureMemoryStorage(appContext)
     private val legacyPrefs = appContext.getSharedPreferences("kenza_memory", Context.MODE_PRIVATE)
+
+    // Narrative compression of pruned memories. Inert until a real summarizer is injected.
+    private val compressor = MemoryCompressor()
+    private val compressionScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     @Synchronized
     fun snapshot(): MemorySnapshot = readState()
@@ -293,27 +301,19 @@ class MemoryStore(context: Context) {
         return MemorySnapshot(items = prune(items), calls = calls, updatedAt = System.currentTimeMillis())
     }
 
+    /**
+     * Keeps the highest-scoring memories. Unpinned items that fall outside the retention
+     * window are handed to [compressor] for narrative compression when one is configured;
+     * the default compressor is inert, so they are simply dropped as before.
+     */
     private fun prune(items: List<MemoryItem>): List<MemoryItem> {
-    val now = System.currentTimeMillis()
-    if (items.size <= MAX_MEMORIES) return items
-
-    val sorted = items.sortedByDescending { MemoryPolicy.score(it, now) }
-    val keep = sorted.take(MAX_MEMORIES)
-    val cold = sorted.drop(MAX_MEMORIES).filter { !it.pinned }
-
-    if (cold.isNotEmpty()) {
-        // Trigger the compression process
-        // In a real app, use a CoroutineScope (e.g., viewModelScope or a custom scope)
-        scope.launch {
-            val narrative = compressor.compress(cold)
-            if (narrative != null) {
-                addAll(listOf(narrative))
+        val split = MemoryPolicy.retention(items, System.currentTimeMillis(), MAX_MEMORIES)
+        if (compressor.isEnabled && split.cold.isNotEmpty()) {
+            compressionScope.launch {
+                compressor.compress(split.cold)?.let { narrative -> addAll(listOf(narrative)) }
             }
         }
-    }
-
-    return keep
-}
+        return split.keep
     }
 
     private companion object {
