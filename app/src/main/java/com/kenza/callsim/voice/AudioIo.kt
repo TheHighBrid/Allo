@@ -13,6 +13,8 @@ import android.media.audiofx.NoiseSuppressor
 import android.os.Process
 import android.util.Log
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
@@ -188,7 +190,12 @@ class MicRecorder(
 interface PlaybackMetrics {
     fun onQueued(queueMs: Int) {}
     fun onOverflow() {}
+    /** The first sample of a new agent turn started playing (playback head passed it). */
     fun onPlaybackHeadAdvanced() {}
+    /** AudioTrack starved while an agent turn was still streaming (audible stutter). */
+    fun onUnderruns(delta: Int) {}
+    /** An interruption flush has actually silenced the track. */
+    fun onPlaybackStopped() {}
     companion object { val NOOP = object : PlaybackMetrics {} }
 }
 
@@ -218,7 +225,7 @@ class PcmPlayer(
     private val metrics: PlaybackMetrics = PlaybackMetrics.NOOP,
 ) {
 
-    private data class QueuedPcm(val epoch: Long, val pcm: ByteArray)
+    private class QueuedPcm(val epoch: Long, val pcm: ByteArray, val turnStart: Boolean = false)
 
     private var track: AudioTrack? = null
     private val queue = LinkedBlockingQueue<QueuedPcm>()
@@ -227,6 +234,7 @@ class PcmPlayer(
     private val trackLock = Any()
     private val policy = PlaybackQueuePolicy(sampleRate)
     @Volatile private var running = false
+    private val nextEnqueueStartsTurn = AtomicBoolean(true)
     private var worker: Thread? = null
 
     fun start() {
@@ -267,9 +275,20 @@ class PcmPlayer(
         running = true
         worker = thread(name = "pcm-playback", priority = Thread.MAX_PRIORITY) {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
-            var advanced = false
+            val tracker = PlaybackTurnTracker(metrics)
+            tracker.reset(headFrames(), track?.underrunCount ?: 0)
             while (running) {
-                val item = runCatching { queue.take() }.getOrNull() ?: continue
+                // While a turn's first sample is pending, poll so the head advance is noticed even
+                // when no further packets arrive (short replies).
+                val item = if (tracker.awaitingHeadAdvance) {
+                    runCatching { queue.poll(HEAD_POLL_MS, TimeUnit.MILLISECONDS) }.getOrNull()
+                } else {
+                    runCatching { queue.take() }.getOrNull()
+                }
+                if (item == null) {
+                    tracker.onHeadPosition(headFrames())
+                    continue
+                }
                 val pcm = item.pcm
                 if (pcm.isEmpty()) {
                     synchronized(trackLock) {
@@ -279,22 +298,34 @@ class PcmPlayer(
                             track?.play()
                         }
                     }
+                    tracker.reset(headFrames(), track?.underrunCount ?: 0)
+                    metrics.onPlaybackStopped()
                     continue
                 }
+                var written = 0
                 synchronized(trackLock) {
                     if (running && item.epoch == queueEpoch.get()) {
-                        writeFully(pcm, item.epoch)
+                        tracker.beforeWrite(item.turnStart, track?.underrunCount ?: 0)
+                        written = writeFully(pcm, item.epoch)
                     }
                 }
+                tracker.afterWrite(written / AudioConfig.BYTES_PER_SAMPLE, headFrames())
                 if (item.epoch == queueEpoch.get()) {
                     queuedBytes.updateAndGet { (it - pcm.size).coerceAtLeast(0) }
                 }
-                if (!advanced && (track?.playbackHeadPosition ?: 0) > 0) {
-                    advanced = true
-                    metrics.onPlaybackHeadAdvanced()
-                }
             }
         }
+    }
+
+    /** AudioTrack reports an unsigned 32-bit frame counter. */
+    private fun headFrames(): Long = (track?.playbackHeadPosition ?: 0).toLong() and 0xFFFF_FFFFL
+
+    /**
+     * The next enqueued packet begins a new agent turn, so per-turn telemetry (first audible
+     * sample, mid-turn underruns) restarts from it. Called on turn completion and new user input.
+     */
+    fun markTurnBoundary() {
+        nextEnqueueStartsTurn.set(true)
     }
 
     /** Non-blocking: AudioTrack is owned exclusively by pcm-playback. */
@@ -306,6 +337,9 @@ class PcmPlayer(
             Log.w(TAG, "playback backlog=${policy.durationMs(current + pcm.size)}ms; preserving queued speech")
         }
 
+        // Claim the turn-start flag before reading the epoch: a racing flush then either discards
+        // nothing we marked or re-arms the flag for the next packet.
+        var turnStart = nextEnqueueStartsTurn.getAndSet(false)
         val epoch = queueEpoch.get()
         val writeBytes = sampleRate * GeminiLiveTuning.PLAYBACK_WRITE_CHUNK_MS /
             1_000 * AudioConfig.BYTES_PER_SAMPLE
@@ -314,14 +348,15 @@ class PcmPlayer(
         // needless copyOfRange slicing.
         if (pcm.size <= writeBytes) {
             queuedBytes.addAndGet(pcm.size)
-            queue.offer(QueuedPcm(epoch, pcm.copyOf()))
+            queue.offer(QueuedPcm(epoch, pcm.copyOf(), turnStart))
         } else {
             var offset = 0
             while (offset < pcm.size) {
                 val end = minOf(offset + writeBytes, pcm.size)
                 val size = end - offset
                 queuedBytes.addAndGet(size)
-                queue.offer(QueuedPcm(epoch, pcm.copyOfRange(offset, end)))
+                queue.offer(QueuedPcm(epoch, pcm.copyOfRange(offset, end), turnStart))
+                turnStart = false
                 offset = end
             }
         }
@@ -339,6 +374,7 @@ class PcmPlayer(
         val epoch = queueEpoch.incrementAndGet()
         queue.clear()
         queuedBytes.set(0)
+        nextEnqueueStartsTurn.set(true)
         AudioPlaybackGate.clear()
         // A command is consumed by the audio worker; WebSocket callbacks never
         // wait for a possibly-blocking AudioTrack write to release trackLock.
@@ -364,11 +400,14 @@ class PcmPlayer(
         worker = null
     }
 
-    /** Blocking mode should consume the whole slice, but loop defensively on short writes. */
-    private fun writeFully(pcm: ByteArray, epoch: Long) {
+    /**
+     * Blocking mode should consume the whole slice, but loop defensively on short writes.
+     * Returns the number of bytes actually handed to the AudioTrack.
+     */
+    private fun writeFully(pcm: ByteArray, epoch: Long): Int {
         var offset = 0
         while (running && itemIsCurrent(epoch) && offset < pcm.size) {
-            val currentTrack = track ?: return
+            val currentTrack = track ?: return offset
             val written = currentTrack.write(
                 pcm,
                 offset,
@@ -377,15 +416,62 @@ class PcmPlayer(
             )
             if (written <= 0) {
                 Log.e(TAG, "AudioTrack write failed code=$written remaining=${pcm.size - offset}")
-                return
+                return offset
             }
             offset += written
         }
+        return offset
     }
 
     private fun itemIsCurrent(epoch: Long): Boolean = epoch == queueEpoch.get()
 
-    companion object
+    companion object {
+        private const val HEAD_POLL_MS = 10L
+    }
+}
+
+/**
+ * Pure per-turn playback bookkeeping for [PcmPlayer]'s worker, JVM-testable without AudioTrack.
+ *
+ * - First audible sample: when a turn's first slice is written, the frames already written mark
+ *   its start; once the playback head passes that mark the turn is audible.
+ * - Underruns: counted only between slices of the same turn. The drain after a turn ends always
+ *   underruns, so the counter is re-baselined at each turn start instead of reported.
+ */
+internal class PlaybackTurnTracker(private val metrics: PlaybackMetrics) {
+    private var writtenFrames = 0L
+    private var turnStartFrame = -1L
+    private var lastUnderruns = 0
+
+    val awaitingHeadAdvance: Boolean get() = turnStartFrame >= 0
+
+    /** After start or a flush: the hardware buffer is empty, so written == played. */
+    fun reset(headFrames: Long, underruns: Int) {
+        writtenFrames = headFrames
+        turnStartFrame = -1L
+        lastUnderruns = underruns
+    }
+
+    fun beforeWrite(turnStart: Boolean, underruns: Int) {
+        if (turnStart) {
+            turnStartFrame = writtenFrames
+        } else if (underruns > lastUnderruns) {
+            metrics.onUnderruns(underruns - lastUnderruns)
+        }
+        lastUnderruns = underruns
+    }
+
+    fun afterWrite(framesWritten: Int, headFrames: Long) {
+        writtenFrames += framesWritten.coerceAtLeast(0)
+        onHeadPosition(headFrames)
+    }
+
+    fun onHeadPosition(headFrames: Long) {
+        if (turnStartFrame >= 0 && headFrames > turnStartFrame) {
+            turnStartFrame = -1L
+            metrics.onPlaybackHeadAdvanced()
+        }
+    }
 }
 
 private const val TAG = "AudioIo"

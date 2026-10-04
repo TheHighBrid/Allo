@@ -34,6 +34,23 @@ class LocalSpeechEnergyTrackerTest {
     }
 
     @Test
+    fun lastVoicedMarksLastLoudChunkNotHangoverEnd() {
+        var now = 1_000L
+        val tracker = LocalSpeechEnergyTracker(speechRmsThreshold = 900, endHangoverChunks = 2, clockMs = { now })
+        tracker.onPcm(tone(640, amplitude = 8_000))
+        now = 1_040L
+        tracker.onPcm(tone(640, amplitude = 8_000))
+        now = 1_080L
+        tracker.onPcm(silence(640))
+        now = 1_120L
+        assertEquals(LocalSpeechEnergyTracker.Event.END, tracker.onPcm(silence(640)))
+        assertEquals(1_040L, tracker.lastVoicedMs())
+        assertEquals(1_120L, tracker.lastEndMs())
+        tracker.reset()
+        assertNull(tracker.lastVoicedMs())
+    }
+
+    @Test
     fun rmsOfSilenceIsNearZero() {
         assertEquals(0, LocalSpeechEnergyTracker.pcm16Rms(silence(320)))
         assertTrue(LocalSpeechEnergyTracker.pcm16Rms(tone(320, amplitude = 5_000)) > 1_000)

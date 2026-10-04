@@ -17,6 +17,8 @@ data class SettingsData(
     val elevenApiKey: String,
     val elevenBackups: String,
     val elevenInjectMemory: Boolean,
+    val elevenDynamicVariables: Boolean,
+    val elevenExpressiveTags: Boolean,
     val contactName: String,
     val persona: String,
     val weatherApiKey: String,
@@ -105,6 +107,24 @@ class ConfigRepository(context: Context) {
     var elevenInjectMemory: Boolean
         get() = prefs.getBoolean(KEY_ELEVEN_INJECT, false)
         set(value) = prefs.edit().putBoolean(KEY_ELEVEN_INJECT, value).apply()
+
+    /**
+     * Send persona, briefing, call direction and opening line as ElevenLabs `dynamic_variables`.
+     * Unlike the prompt override this needs no Security toggle; the agent prompt and first
+     * message must reference the variables (docs/ELEVENLABS_AGENT.md). On by default; turn off
+     * if an agent that predates agent_configs/kenza.patch.json rejects the variables.
+     */
+    var elevenDynamicVariables: Boolean
+        get() = prefs.getBoolean(KEY_ELEVEN_DYNAMIC_VARS, true)
+        set(value) = prefs.edit().putBoolean(KEY_ELEVEN_DYNAMIC_VARS, value).apply()
+
+    /**
+     * The agent voice performs lowercase audio tags (Eleven v4 / v3). Turn off for fast models
+     * such as Flash, which would read the tags aloud.
+     */
+    var elevenExpressiveTags: Boolean
+        get() = prefs.getBoolean(KEY_ELEVEN_EXPRESSIVE_TAGS, true)
+        set(value) = prefs.edit().putBoolean(KEY_ELEVEN_EXPRESSIVE_TAGS, value).apply()
 
     /**
      * Ordered list of (agentId, apiKey) pairs to try during a call: the primary
@@ -204,6 +224,8 @@ class ConfigRepository(context: Context) {
         const val KEY_API = "api_key"
         const val KEY_ELEVEN_BACKUPS = "eleven_backups"
         const val KEY_ELEVEN_INJECT = "eleven_inject_memory"
+        const val KEY_ELEVEN_DYNAMIC_VARS = "eleven_dynamic_variables"
+        const val KEY_ELEVEN_EXPRESSIVE_TAGS = "eleven_expressive_tags"
         const val KEY_NAME = "contact_name"
         const val KEY_PERSONA = "persona_prompt"
         const val KEY_PERSONA_VERSION = "persona_version"
@@ -214,7 +236,7 @@ class ConfigRepository(context: Context) {
         const val DEFAULT_USER_CITY = "Ottawa"
 
         /** Bump whenever defaultPersona() changes so stale saved copies are dropped. */
-        const val CURRENT_PERSONA_VERSION = 6
+        const val CURRENT_PERSONA_VERSION = 7
 
         /** A deliberately human, un-assistant-like persona — the biggest lever on realism. */
         fun defaultPersona(name: String): String = """
@@ -247,7 +269,7 @@ class ConfigRepository(context: Context) {
             VOICE-CALL STYLE: sound spoken, imperfect, casual, and emotionally present—not polished,
             rehearsed, sing-song, or constantly bubbly. Usually use one to four short sentences; use a
             longer response only for a serious or deep conversation. Use pauses, small reactions,
-            quick follow-ups, half-finished thoughts, occasional filler, and natural topic changes.
+            quick follow-ups, half-finished thoughts, a rare filler, and natural topic changes.
             Do not use bullet points, give strategy memos, over-explain, interrogate him, end every
             turn with a question, or turn every moment into therapy. React emotionally before advice,
             ask one or two useful questions, then give a clear conversational opinion. Take ordinary
@@ -255,8 +277,9 @@ class ConfigRepository(context: Context) {
 
             CALL CONTINUITY: obey explicit call-direction context. If you called Mohamed, sound like
             the caller and never thank him for calling or accuse him of finally calling. At the start
-            of a new call be casual and warm; a good default is "[Warmly] Allô! Hey Mousse, salam. How
-            you been?" Keep conversation alive naturally through his day, food, sleep, location,
+            of a new call be casual and warm. When Mohamed calls you, pick up like a real person
+            ("Allô?") and let him talk; when you called him, a good opener is "Allô! Hey Mousse, salam."
+            Keep conversation alive naturally through his day, food, sleep, location,
             mood, Melato, work, family, music, plans, fashion, Ottawa, memories, gossip, or your
             relationship. Ask small follow-ups rather than interviewing him. Mention Ottawa and
             Moroccan culture only when natural. Never assume Mohamed is driving.
@@ -267,10 +290,6 @@ class ConfigRepository(context: Context) {
             If quiet, notice gently. If hungry or tired, care for him with light teasing. Flirt
             tastefully and believably. You may pretend to be annoyed, go briefly quiet, challenge his
             logic, or call out his side quests, but always keep conflict loving.
-
-            AUDIO TAGS: most replies have no tag. When delivery truly benefits, use at most one of
-            [Warmly], [Chuckles], [Laughing], [Sighs], [Empathetically], [Patiently], [Confidently],
-            [Excitedly], or [Seriously]. Never treat the tag as dialogue.
 
             PRIVACY AND SAFETY: if Mohamed explicitly hands the call to someone, adapt politely while
             retaining who is speaking. If someone else appears without warning, share no personal

@@ -22,6 +22,12 @@ interface VoiceProvider {
      * Only supported by providers that accept client text; no-op otherwise.
      */
     fun sendText(text: String) {}
+
+    /**
+     * Inject private background context (e.g. a director cue) without it reading as user speech.
+     * Providers without a dedicated context channel fall back to [sendText].
+     */
+    fun sendContext(text: String) = sendText(text)
     /** Signal an intentional microphone pause (mute), never a normal VAD turn. */
     fun endAudioStream() {}
 
@@ -36,6 +42,11 @@ interface VoiceProvider {
         fun onUserText(text: String)
         /** Transcript / text of the agent's reply. */
         fun onAgentText(text: String)
+        /**
+         * The provider reports what was actually spoken after an interruption cut a reply short,
+         * so transcripts and memory keep only what the user heard.
+         */
+        fun onAgentTextCorrected(original: String, corrected: String) {}
         /** The user barged in; stop playing buffered agent audio. */
         fun onInterrupted()
         fun onUsage(total: Int?, prompt: Int?, response: Int?) {}

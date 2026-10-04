@@ -113,25 +113,72 @@ data class LiveTurnMetrics(
     val route: String = "unknown",
     val networkClass: String = "unknown",
     val sessionAgeMs: Long = 0,
-)
+    val bargeInStartMs: Long? = null,
+    val interruptionReceivedMs: Long? = null,
+    val playbackStoppedMs: Long? = null,
+) {
+    /** Local end of speech to Kenza's first audible sample: the latency the caller feels. */
+    fun speechEndToPlaybackMs(): Long? = span(localSpeechEndMs, firstPlaybackHeadAdvanceMs)
+
+    /** Local end of speech to the first reply packet from the provider (network + server time). */
+    fun speechEndToFirstPacketMs(): Long? = span(localSpeechEndMs, firstModelPacketReceivedMs)
+
+    /** Caller starts talking over Kenza until the provider confirms the interruption. */
+    fun bargeInToInterruptMs(): Long? = span(bargeInStartMs, interruptionReceivedMs)
+
+    /** Provider interruption until the AudioTrack has actually been silenced. */
+    fun interruptToPlaybackStopMs(): Long? = span(interruptionReceivedMs, playbackStoppedMs)
+
+    private fun span(start: Long?, end: Long?): Long? =
+        if (start == null || end == null || end < start) null else end - start
+}
+
+/** Nearest-rank percentiles over completed turns; content-free by construction. */
+internal object LatencyStats {
+    fun percentile(values: List<Long>, p: Int): Long? {
+        if (values.isEmpty()) return null
+        val sorted = values.sorted()
+        val rank = kotlin.math.ceil(p / 100.0 * sorted.size).toInt().coerceIn(1, sorted.size)
+        return sorted[rank - 1]
+    }
+
+    fun summarize(name: String, values: List<Long>): String =
+        "\"$name\":{\"n\":${values.size},\"p50\":${percentile(values, 50)},\"p95\":${percentile(values, 95)}}"
+}
 
 /** Content-free per-turn state. No method accepts transcript or media payloads. */
-class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
+class LiveTurnTelemetry(
+    private val enabled: Boolean,
+    private val clockMs: () -> Long = { System.currentTimeMillis() },
+) : PlaybackMetrics {
     init {
         LiveDiagnosticsGate.enabled = enabled
     }
 
     private var nextId = 1L
     private var current = LiveTurnMetrics(nextId)
+    private val sessionStartedMs = clockMs()
+    private var sessionFirstPlaybackMs: Long? = null
+    private val completedTurns = mutableListOf<LiveTurnMetrics>()
 
-    @Synchronized fun localSpeechStart(atMs: Long = System.currentTimeMillis()) {
+    @Synchronized fun localSpeechStart(atMs: Long = clockMs()) {
         if (current.localSpeechStartMs == null) {
             current = current.copy(localSpeechStartMs = atMs)
         }
+        // Speech that starts while Kenza is already audible is a barge-in attempt.
+        if (current.firstPlaybackHeadAdvanceMs != null && current.bargeInStartMs == null && !current.interrupted) {
+            current = current.copy(bargeInStartMs = atMs)
+        }
     }
 
-    @Synchronized fun localSpeechEnd(atMs: Long = System.currentTimeMillis()) {
-        current = current.copy(localSpeechEndMs = atMs)
+    /**
+     * Only speech that ends before Kenza becomes audible counts as the turn's end of speech;
+     * later local speech (talking over her) must not distort the reply latency.
+     */
+    @Synchronized fun localSpeechEnd(atMs: Long = clockMs()) {
+        if (current.firstPlaybackHeadAdvanceMs == null) {
+            current = current.copy(localSpeechEndMs = atMs)
+        }
     }
 
     @Synchronized fun noteUnderruns(delta: Int) {
@@ -139,10 +186,18 @@ class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
         current = current.copy(underrunsDelta = current.underrunsDelta + delta)
     }
 
+    override fun onUnderruns(delta: Int) = noteUnderruns(delta)
+
+    @Synchronized override fun onPlaybackStopped() {
+        if (current.interruptionReceivedMs != null && current.playbackStoppedMs == null) {
+            current = current.copy(playbackStoppedMs = clockMs())
+        }
+    }
+
     @Synchronized fun currentMetrics(): LiveTurnMetrics = current
 
     @Synchronized fun micQueued(socketBytes: Long) {
-        val now = System.currentTimeMillis()
+        val now = clockMs()
         current = current.copy(
             lastMicPacketQueuedMs = now,
             socketQueuePeakBytes = maxOf(current.socketQueuePeakBytes, socketBytes),
@@ -151,20 +206,22 @@ class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
 
     @Synchronized fun modelAudio() {
         if (current.firstModelPacketReceivedMs == null) {
-            current = current.copy(firstModelPacketReceivedMs = System.currentTimeMillis())
+            current = current.copy(firstModelPacketReceivedMs = clockMs())
         }
     }
 
     @Synchronized override fun onQueued(queueMs: Int) {
         current = current.copy(
-            firstPlaybackQueuedMs = current.firstPlaybackQueuedMs ?: System.currentTimeMillis(),
+            firstPlaybackQueuedMs = current.firstPlaybackQueuedMs ?: clockMs(),
             playbackQueuePeakMs = maxOf(current.playbackQueuePeakMs, queueMs),
         )
     }
 
     @Synchronized override fun onPlaybackHeadAdvanced() {
+        val now = clockMs()
+        if (sessionFirstPlaybackMs == null) sessionFirstPlaybackMs = now
         if (current.firstPlaybackHeadAdvanceMs == null) {
-            current = current.copy(firstPlaybackHeadAdvanceMs = System.currentTimeMillis())
+            current = current.copy(firstPlaybackHeadAdvanceMs = now)
         }
     }
 
@@ -173,21 +230,62 @@ class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
     }
 
     @Synchronized fun generationComplete() {
-        current = current.copy(generationCompleteMs = System.currentTimeMillis())
+        current = current.copy(generationCompleteMs = clockMs())
     }
 
     @Synchronized fun interrupted() {
-        current = current.copy(interrupted = true)
+        current = current.copy(
+            interrupted = true,
+            interruptionReceivedMs = current.interruptionReceivedMs ?: clockMs(),
+        )
     }
 
     @Synchronized fun complete(route: String, sessionAgeMs: Long) {
         val done = current.copy(
-            turnCompleteMs = System.currentTimeMillis(),
+            turnCompleteMs = clockMs(),
             route = route,
             sessionAgeMs = sessionAgeMs,
         )
         if (enabled) Log.i("LiveTurnMetrics", toJson(done))
+        completedTurns += done
+        if (completedTurns.size > MAX_SUMMARY_TURNS) completedTurns.removeAt(0)
         current = LiveTurnMetrics(++nextId)
+    }
+
+    /**
+     * Content-free per-session latency summary (P50/P95 over completed turns) plus the provider's
+     * connection/teardown timings. Returned for tests; only logged when diagnostics are enabled.
+     */
+    @Synchronized fun sessionSummary(provider: String, timing: LiveProviderTimingSnapshot?): String {
+        val turns = completedTurns.toList()
+        val startToFirstPlayback = sessionFirstPlaybackMs?.let { it - sessionStartedMs }
+        return buildString {
+            append("{\"provider\":\"").append(provider.filter { it.isLetterOrDigit() || it == '_' }).append("\"")
+            append(",\"turns\":").append(turns.size)
+            append(",\"interruptedTurns\":").append(turns.count { it.interrupted })
+            append(",\"underruns\":").append(turns.sumOf { it.underrunsDelta })
+            append(",\"startToFirstPlaybackMs\":").append(startToFirstPlayback)
+            append(",\"connectionToReadyMs\":").append(timing?.connectionToReadyMs())
+            append(",\"teardownMs\":").append(timing?.teardownDurationMs())
+            val spans = listOf<Pair<String, (LiveTurnMetrics) -> Long?>>(
+                "speechEndToPlaybackMs" to LiveTurnMetrics::speechEndToPlaybackMs,
+                "speechEndToFirstPacketMs" to LiveTurnMetrics::speechEndToFirstPacketMs,
+                "bargeInToInterruptMs" to LiveTurnMetrics::bargeInToInterruptMs,
+                "interruptToPlaybackStopMs" to LiveTurnMetrics::interruptToPlaybackStopMs,
+            )
+            spans.forEach { (name, span) ->
+                append(',').append(LatencyStats.summarize(name, turns.mapNotNull(span)))
+            }
+            append('}')
+        }
+    }
+
+    fun logSessionSummary(provider: String, timing: LiveProviderTimingSnapshot?) {
+        if (enabled) Log.i("LiveSessionMetrics", sessionSummary(provider, timing))
+    }
+
+    private companion object {
+        const val MAX_SUMMARY_TURNS = 500
     }
 
     fun toJson(m: LiveTurnMetrics): String = buildString {
@@ -209,6 +307,13 @@ class LiveTurnTelemetry(private val enabled: Boolean) : PlaybackMetrics {
             "route" to m.route,
             "networkClass" to m.networkClass,
             "sessionAgeMs" to m.sessionAgeMs,
+            "bargeInStartMs" to m.bargeInStartMs,
+            "interruptionReceivedMs" to m.interruptionReceivedMs,
+            "playbackStoppedMs" to m.playbackStoppedMs,
+            "speechEndToPlaybackMs" to m.speechEndToPlaybackMs(),
+            "speechEndToFirstPacketMs" to m.speechEndToFirstPacketMs(),
+            "bargeInToInterruptMs" to m.bargeInToInterruptMs(),
+            "interruptToPlaybackStopMs" to m.interruptToPlaybackStopMs(),
         )
 
         append('{')
@@ -267,6 +372,45 @@ class TranscriptAssembler {
     fun clear() {
         user.clear()
         agent.clear()
+    }
+
+    /** Applies a provider correction to not-yet-committed agent text. Returns true when applied. */
+    fun correctAgent(original: String, corrected: String): Boolean {
+        val fixed = replaceLast(agent.toString(), original, corrected) ?: return false
+        agent.clear()
+        agent.append(fixed)
+        return true
+    }
+
+    companion object {
+        /**
+         * Applies a provider correction to the most recent committed agent line that contains the
+         * original reply (interruptions commit the turn before the correction arrives).
+         */
+        fun correctCommitted(
+            entries: MutableList<Pair<String, String>>,
+            original: String,
+            corrected: String,
+        ): Boolean {
+            for (index in entries.indices.reversed()) {
+                val (role, text) = entries[index]
+                if (role != "agent") continue
+                val fixed = replaceLast(text, original, corrected) ?: continue
+                if (fixed.isBlank()) entries.removeAt(index) else entries[index] = role to fixed
+                return true
+            }
+            return false
+        }
+
+        internal fun replaceLast(text: String, original: String, corrected: String): String? {
+            val needle = original.trim()
+            if (needle.isEmpty()) return null
+            val at = text.lastIndexOf(needle)
+            if (at < 0) return null
+            return (text.substring(0, at) + corrected.trim() + text.substring(at + needle.length))
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        }
     }
 
     private fun append(target: StringBuilder, raw: String) {
