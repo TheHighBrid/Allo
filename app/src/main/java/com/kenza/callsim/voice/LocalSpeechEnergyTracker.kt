@@ -18,12 +18,14 @@ internal class LocalSpeechEnergyTracker(
     private var quietChunks = 0
     private var lastStartMs: Long? = null
     private var lastEndMs: Long? = null
+    private var lastVoicedMs: Long? = null
 
     fun onPcm(pcm: ByteArray): Event? {
         if (pcm.isEmpty()) return null
         val energy = pcm16Rms(pcm)
         return if (energy >= speechRmsThreshold) {
             quietChunks = 0
+            lastVoicedMs = clockMs()
             if (!speaking) {
                 speaking = true
                 lastStartMs = clockMs()
@@ -60,10 +62,17 @@ internal class LocalSpeechEnergyTracker(
         quietChunks = 0
         lastStartMs = null
         lastEndMs = null
+        lastVoicedMs = null
     }
 
     fun lastStartMs(): Long? = lastStartMs
     fun lastEndMs(): Long? = lastEndMs
+
+    /**
+     * Time of the last chunk at speech energy. END fires only after the hangover, so this is the
+     * better estimate of when the caller actually stopped talking.
+     */
+    fun lastVoicedMs(): Long? = lastVoicedMs
     fun isSpeaking(): Boolean = speaking
 
     companion object {

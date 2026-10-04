@@ -56,7 +56,7 @@ class LiveTurnTelemetryLocalSpeechTest {
 
     @Test
     fun serializedMetricStillHasNoContentFields() {
-        val text = LiveTurnTelemetry(false).toJson(
+        val text = LiveTurnJson.encode(
             LiveTurnMetrics(1, localSpeechStartMs = 1, localSpeechEndMs = 2),
         )
         assertTrue(!text.contains("transcript", ignoreCase = true))

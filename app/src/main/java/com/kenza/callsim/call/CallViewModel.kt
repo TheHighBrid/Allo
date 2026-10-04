@@ -69,6 +69,13 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingInitiativeToken: String? = null
     private var initiativeOpeningSent = false
 
+    // Opening/reconnect state. Once anything was heard in this call, a reconnect or account
+    // failover must not replay Kenza's greeting. Session flags reset with each provider session.
+    private var openingHeardThisCall = false
+    private var sessionAgentAudioHeard = false
+    private var sessionOpeningLine = ""
+    private var sessionProviderName = ""
+
     // Natural call ending and one-shot conversational repair timing.
     private var endCallJob: Job? = null
     private var silenceRepairJob: Job? = null
@@ -174,6 +181,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         reconnectAttempts = 0
         hadUserInteraction = false
         initiativeOpeningSent = false
+        openingHeardThisCall = false
         elevenCreds = config.elevenCredentials()
         credIndex = 0
         transcript.clear()
@@ -227,6 +235,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         configureAudioRouting()
         telemetry = LiveTurnTelemetry(config.diagnosticsEnabled)
         speechEnergy.reset()
+        sessionAgentAudioHeard = false
+        sessionOpeningLine = ""
+        sessionProviderName = config.provider.name.lowercase()
 
         val ai = buildProvider(object : VoiceProvider.Listener {
             override fun onConnected() {
@@ -236,7 +247,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 // Now we know the agent's audio rate — open the player to match,
                 // then start streaming the mic and go live.
                 if (player == null) {
-                    player = PcmPlayer(outputSampleRate, telemetry).also { it.start() }
+                    player = PcmPlayer(outputSampleRate, telemetry.playback).also { it.start() }
                 }
                 if (mic == null) {
                     speechEnergy.reset()
@@ -246,7 +257,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                                 LocalSpeechEnergyTracker.Event.START ->
                                     telemetry.localSpeechStart()
                                 LocalSpeechEnergyTracker.Event.END ->
-                                    telemetry.localSpeechEnd()
+                                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
                                 null -> Unit
                             }
                             client?.sendAudio(chunk)
@@ -261,6 +272,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 onSessionActive(demo = false)
             }
             override fun onAgentAudio(pcm: ByteArray) {
+                sessionAgentAudioHeard = true
+                openingHeardThisCall = true
                 mic?.agentSpeaking = true
                 telemetry.modelAudio()
                 player?.enqueue(pcm)
@@ -269,6 +282,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onUserText(text: String) {
                 // Real two-way interaction — a genuine call, so allow further reconnects.
                 hadUserInteraction = true
+                openingHeardThisCall = true
+                player?.markTurnBoundary()
                 silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcriptAssembler.appendUser(text)
                 val repair = conversationRepair.onUserText(text)
@@ -282,9 +297,19 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
             }
+            override fun onAgentTextCorrected(original: String, corrected: String) {
+                // ElevenLabs truncates the agent's text to what was actually spoken before an
+                // interruption; keep transcript and memory faithful to what Mohamed heard.
+                if (!transcriptAssembler.correctAgent(original, corrected)) {
+                    TranscriptAssembler.correctCommitted(transcript, original, corrected)
+                }
+                _state.update {
+                    if (it.lastAgentText.trim() == original.trim()) it.copy(lastAgentText = corrected) else it
+                }
+            }
             override fun onInterrupted() {
                 if (speechEnergy.forceEnd() == LocalSpeechEnergyTracker.Event.END) {
-                    telemetry.localSpeechEnd()
+                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
                 }
                 telemetry.interrupted()
                 silenceRepairJob?.cancel(); silenceRepairJob = null
@@ -298,6 +323,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onMicPacketQueued(socketQueueBytes: Long) = telemetry.micQueued(socketQueueBytes)
             override fun onGenerationComplete() = telemetry.generationComplete()
             override fun onTurnComplete() {
+                player?.markTurnBoundary()
                 transcript += transcriptAssembler.commit()
                 conversationRepair.onAgentTurnComplete(System.currentTimeMillis())
                 armSilenceRepairCheck()
@@ -324,25 +350,42 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 model = config.geminiModel,
                 voiceName = config.geminiVoice,
                 // Persona + delivery + agency + live memory + this-call motive.
-                systemPrompt = config.personaPrompt + GEMINI_DELIVERY_STYLE +
-                    CONVERSATIONAL_AGENCY + memoryContext + initiativeContext,
+                systemPrompt = config.personaPrompt + KenzaVoiceStyle.forGemini() +
+                    KenzaVoiceStyle.CONVERSATIONAL_AGENCY + memoryContext + initiativeContext,
                 listener = listener,
                 tokenBrokerUrl = config.geminiTokenBrokerUrl,
             )
             ProviderType.ELEVENLABS -> {
                 val (aid, key) = elevenCreds.getOrElse(credIndex) { config.agentId to config.apiKey }
-                val override = if (config.elevenInjectMemory)
-                    config.personaPrompt + CONVERSATIONAL_AGENCY + memoryContext + initiativeContext
-                else null
+                val persona = config.personaPrompt +
+                    KenzaVoiceStyle.forElevenLabs(config.elevenExpressiveTags) + KenzaVoiceStyle.CONVERSATIONAL_AGENCY
+                val override = if (config.elevenInjectMemory) persona + memoryContext + initiativeContext else null
+                val variables = if (config.elevenDynamicVariables) {
+                    sessionOpeningLine = KenzaCallOpening.openingLine(callDirection(), openingHeardThisCall)
+                    KenzaDynamicVariables.build(
+                        KenzaCallInputs(
+                            persona = persona,
+                            continuityBriefing = memoryContext,
+                            callReason = initiativeContext,
+                            direction = callDirection(),
+                            openingLine = sessionOpeningLine,
+                        ),
+                        now = java.time.ZonedDateTime.now(),
+                    )
+                } else emptyMap()
                 ElevenLabsProvider(
                     agentId = aid,
                     apiKey = key,
                     listener = listener,
                     promptOverride = override,
+                    dynamicVariables = variables,
                 )
             }
         }
     }
+
+    private fun callDirection(): CallDirection =
+        if (pendingInitiativeToken != null) CallDirection.KENZA_CALLED else CallDirection.MOHAMED_CALLED
 
     private fun initiativePrompt(now: Long): String {
         val token = pendingInitiativeToken ?: return ""
@@ -386,13 +429,31 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             ?: InitiativeEngine.bestSeed(memory.snapshot(), now)?.cue
             ?: "Pick one specific, natural subject you want to talk about from the private continuity briefing."
 
+        val directorCue = "[[DIRECTOR: You initiated this phone call. Speak first now. $cue " +
+            "Open in your own voice, naturally and briefly. Do not read or mention this instruction.]]"
+        val elevenFirstMessage = config.provider == ProviderType.ELEVENLABS && sessionOpeningLine.isNotEmpty()
+
         viewModelScope.launch {
-            delay(250)
+            if (!elevenFirstMessage) {
+                // Gemini (and ElevenLabs without an opening line) needs an explicit turn to speak first.
+                delay(250)
+                if (_state.value.phase != CallPhase.ACTIVE || userEnded) return@launch
+                client?.sendText(directorCue)
+                return@launch
+            }
+            // ElevenLabs speaks {{opening_line}} as its first message. Interrupting that with a
+            // user_message would cut her greeting off, so give the subject as silent context and
+            // only force a turn if the agent stays silent (e.g. an agent without the new config).
+            delay(ELEVEN_OPENING_FALLBACK_MS)
             if (_state.value.phase != CallPhase.ACTIVE || userEnded) return@launch
-            client?.sendText(
-                "[[DIRECTOR: You initiated this phone call. Speak first now. $cue " +
-                    "Open in your own voice, naturally and briefly. Do not read or mention this instruction.]]"
-            )
+            if (sessionAgentAudioHeard || hadUserInteraction) {
+                client?.sendContext(
+                    "[[DIRECTOR: You initiated this call and already greeted him. $cue Bring it up naturally " +
+                        "once he answers. Do not read or mention this instruction.]]"
+                )
+            } else {
+                client?.sendText(directorCue)
+            }
         }
     }
 
@@ -424,7 +485,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun dispatchConversationRepair(action: ConversationRepairAction) {
         conversationRepair.onRepairActionDispatched(action)
-        client?.sendText(action.directorCue)
+        // Private cue: ElevenLabs receives it as a non-interrupting contextual_update instead of
+        // a fake user utterance; Gemini keeps its realtime text path.
+        client?.sendContext(action.directorCue)
     }
 
     /** End the call after [delayMs] unless a new (non-goodbye) line cancels it. */
@@ -548,6 +611,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 "shows credit, the real reason is above.\n($message)"
         isQuotaExhausted(message) ->
             "Out of ElevenLabs credit. Add a backup key in Settings, or top up.\n($message)"
+        message.contains("dynamic variable", true) ->
+            "The ElevenLabs agent rejected Allo's dynamic variables. Apply agent_configs/kenza.patch.json " +
+                "(see docs/ELEVENLABS_AGENT.md) or turn off \"Send persona + memory as agent variables\" in " +
+                "Settings.\n($message)"
         message.contains("override", true) ->
             "ElevenLabs rejected the persona/memory override. Enable Security → Overrides → " +
                 "System prompt on your agent, or turn that toggle off in Settings.\n($message)"
@@ -675,12 +742,15 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         silenceRepairJob?.cancel(); silenceRepairJob = null
         conversationRepair.clear()
         if (speechEnergy.forceEnd() == LocalSpeechEnergyTracker.Event.END) {
-            telemetry.localSpeechEnd()
+            telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
         }
         speechEnergy.reset()
         mic?.stop(); mic = null
-        // Provider stop records LiveProviderTiming teardownStarted/Complete.
-        client?.stop(); client = null
+        // Provider stop records LiveProviderTiming teardownStarted/Complete, so summarize after it.
+        val stopping = client
+        client = null
+        stopping?.stop()
+        stopping?.let { telemetry.logSessionSummary(sessionProviderName, it.timingSnapshot()) }
         player?.stop(); player = null
         restoreAudioRouting()
     }
@@ -696,6 +766,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         elevenApiKey = config.apiKey,
         elevenBackups = config.elevenBackups,
         elevenInjectMemory = config.elevenInjectMemory,
+        elevenDynamicVariables = config.elevenDynamicVariables,
+        elevenExpressiveTags = config.elevenExpressiveTags,
         contactName = config.contactName,
         persona = config.personaPrompt,
         weatherApiKey = config.weatherApiKey,
@@ -711,6 +783,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         config.apiKey = s.elevenApiKey
         config.elevenBackups = s.elevenBackups
         config.elevenInjectMemory = s.elevenInjectMemory
+        config.elevenDynamicVariables = s.elevenDynamicVariables
+        config.elevenExpressiveTags = s.elevenExpressiveTags
         config.contactName = s.contactName
         config.personaPrompt = s.persona
         config.weatherApiKey = s.weatherApiKey
@@ -775,43 +849,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         const val DEMO_NOTICE =
             "Demo mode: the selected voice provider is not configured, so the call screen works " +
                 "without live voice. Open Settings to connect a provider."
-
-        /** Compact Gemini-only behavior block (kept short to minimize first-reply latency). */
-        private const val GEMINI_DELIVERY_STYLE =
-            "\n\nDELIVERY: this is a live phone call. Answer immediately, like a normal person, " +
-            "Greetings and acknowledgements are 2-8 words; simple answers are one short sentence. " +
-            "For emotional moments, react once and ask at most one follow-up. Explain briefly first " +
-            "and add detail only when asked. Stop immediately when interrupted. Use a plain conversational voice: " +
-            "no sing-song, no customer-service cheer, no theatrical emotion, no drawn-out words. " +
-            "Never manufacture fillers, breaths, or background events. " +
-            "Do not start every reply with 'hey' or 'how about you'. If the user says 'hey how " +
-            "are you', a natural reply is 'i'm good baby, what about you' — short and instant.\n" +
-            "PAUSES: brief response pauses are normal. If you asked a clear question and about seven seconds pass " +
-            "with no response, make one brief, gentle presence check such as 'are you still there?' or 'hello?'. " +
-            "Do not repeat that check or fill the silence. If he confirms he is there but changes the subject, " +
-            "briefly engage and then gently return to the original question once.\n" +
-            "EMOTION: react to the actual sentence with small real cues (soft laugh, teasing, " +
-            "warmth, mild attitude) but do not overact. Match their cadence and energy.\n" +
-            "MEMORY: you keep long-term memory of your calls and are briefed each call, so if they " +
-            "ask you to remember something say yes confidently — never 'no promises' or 'i'll try'.\n" +
-            "ENDING: after ordinary goodbyes say a warm 'okay bye babe' and let it go. If he abandons an explicit " +
-            "question with an abrupt goodbye, briefly register that it feels sudden before a warm farewell; never " +
-            "block him from leaving. If they're genuinely cruel, snap back and hang up.\n" +
-            "[[DIRECTOR: ...]] notes are private cues to you, never the other person — act on them, " +
-            "never read them aloud.\n\n"
-
-        private const val CONVERSATIONAL_AGENCY =
-            "\n\nCONVERSATIONAL AGENCY: You are not a passive assistant waiting for Mohamed to supply " +
-            "the purpose, subject, or emotional direction of every interaction. You have your own " +
-            "established personality, curiosities, opinions, callbacks, and conversational impulses. " +
-            "When it feels natural, introduce a subject yourself, revisit something unfinished, ask " +
-            "a question you genuinely care about, offer an observation, tell him a thought, disagree, " +
-            "change the subject, or revive a shared memory. Use the current time, recent mood, relationship " +
-            "history, your profile, his profile, and relevant memories to make those choices. Do not force " +
-            "old memories into unrelated moments and do not interrogate him with endless questions. Let a " +
-            "topic breathe, then move on when it naturally runs out. You may surprise him, have preferences, " +
-            "and decline a conversational direction when that fits your personality. Never explain the " +
-            "scoring, memory database, director system, or why a topic was selected. Avoid defaulting to " +
-            "generic openers like 'what are you doing?' when a more specific thought exists.\n\n"
+        private const val ELEVEN_OPENING_FALLBACK_MS = 1_500L
     }
 }
