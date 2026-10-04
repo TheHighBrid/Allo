@@ -64,6 +64,8 @@ fun SettingsScreen(
     var elevenKey by remember { mutableStateOf(initial.elevenApiKey) }
     var backups by remember { mutableStateOf(initial.elevenBackups) }
     var injectMemory by remember { mutableStateOf(initial.elevenInjectMemory) }
+    var dynamicVariables by remember { mutableStateOf(initial.elevenDynamicVariables) }
+    var expressiveTags by remember { mutableStateOf(initial.elevenExpressiveTags) }
     var contactName by remember { mutableStateOf(initial.contactName) }
     var persona by remember { mutableStateOf(initial.persona) }
     var userCity by remember { mutableStateOf(initial.userCity) }
@@ -146,16 +148,23 @@ fun SettingsScreen(
             Spacer(Modifier.height(4.dp))
             Text("Voice ID: ${voiceId.ifEmpty { "—" }}", color = IOSColors.SecondaryLabel, fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Send persona + memory to ElevenLabs", color = Color.White, fontSize = 15.sp)
-                    Text(
-                        "Optional ElevenLabs-only setting. Enable Security → Overrides → System prompt on that agent first.",
-                        color = IOSColors.SecondaryLabel, fontSize = 12.sp
-                    )
-                }
-                Switch(checked = injectMemory, onCheckedChange = { injectMemory = it })
-            }
+            SettingSwitch(
+                "Send persona + memory as agent variables",
+                "Fills {{kenza_persona}}, {{continuity_briefing}} and {{opening_line}} in the agent prompt and first " +
+                    "message. No Security override needed. See docs/ELEVENLABS_AGENT.md.",
+                dynamicVariables,
+            ) { dynamicVariables = it }
+            SettingSwitch(
+                "Expressive audio tags",
+                "Keep on for Eleven v4 / v3 voices. Turn off for Flash, which would read tags aloud.",
+                expressiveTags,
+            ) { expressiveTags = it }
+            SettingSwitch(
+                "Replace the agent's whole prompt (advanced)",
+                "Sends persona + memory as a full system-prompt override. " +
+                    "Enable Security → Overrides → System prompt on that agent first.",
+                injectMemory,
+            ) { injectMemory = it }
         }
 
         IosSectionCaption("Call identity")
@@ -200,6 +209,8 @@ fun SettingsScreen(
                         elevenApiKey = elevenKey,
                         elevenBackups = backups,
                         elevenInjectMemory = injectMemory,
+                        elevenDynamicVariables = dynamicVariables,
+                        elevenExpressiveTags = expressiveTags,
                         contactName = contactName,
                         persona = persona,
                         weatherApiKey = weatherKey,
@@ -266,5 +277,16 @@ private fun Field(
         )
         Spacer(Modifier.height(4.dp))
         Text(help, color = IOSColors.SecondaryLabel, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 15.sp)
+            Text(detail, color = IOSColors.SecondaryLabel, fontSize = 12.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }

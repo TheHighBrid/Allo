@@ -17,6 +17,8 @@ class ElevenLabsProvider(
     private val apiKey: String,
     private val listener: VoiceProvider.Listener,
     private val promptOverride: String? = null,
+    /** Sent as `dynamic_variables`; the agent prompt/first message reference them as {{name}}. */
+    private val dynamicVariables: Map<String, String> = emptyMap(),
 ) : VoiceProvider {
 
     companion object {
@@ -32,6 +34,7 @@ class ElevenLabsProvider(
         .build()
     private val timing = LiveProviderTiming("elevenlabs")
     private val lifecycleEpoch = AtomicLong(0L)
+    private val audioFilter = InterruptedAudioFilter()
 
     @Volatile private var socket: WebSocket? = null
     @Volatile private var closedByUser = false
@@ -45,6 +48,7 @@ class ElevenLabsProvider(
         closedByUser = false
         sessionReady = false
         publicFallbackHint = null
+        audioFilter.reset()
 
         val aid = agentId.trim()
         val key = apiKey.trim()
@@ -163,61 +167,58 @@ class ElevenLabsProvider(
         if (isLifecycleActive(epoch)) socket = webSocket else webSocket.cancel()
     }
 
-    private fun buildInitMessage(): String {
-        val init = JSONObject().put("type", "conversation_initiation_client_data")
-        if (!promptOverride.isNullOrBlank()) {
-            val agent = JSONObject().put("prompt", JSONObject().put("prompt", promptOverride))
-            init.put("conversation_config_override", JSONObject().put("agent", agent))
-        }
-        return init.toString()
-    }
+    private fun buildInitMessage(): String =
+        ElevenLabsClientMessages.initiation(dynamicVariables, promptOverride).toString()
 
     private fun handle(webSocket: WebSocket, text: String) {
         val json = runCatching { JSONObject(text) }.getOrNull() ?: return
-        when (json.optString("type")) {
-            "conversation_initiation_metadata" -> {
+        when (val event = ElevenLabsServerEvent.parse(json)) {
+            is ElevenLabsServerEvent.Metadata -> {
                 sessionReady = true
                 timing.sessionReady()
                 publicFallbackHint = null
-                val fmt = json.optJSONObject("conversation_initiation_metadata_event")
-                    ?.optString("agent_output_audio_format").orEmpty()
+                val fmt = event.outputFormat
                 outputIsMulaw = fmt.startsWith("ulaw", ignoreCase = true)
-                val sampleRate = parseSampleRate(fmt)
+                val sampleRate = ElevenLabsClientMessages.sampleRateOf(fmt)
                 Log.i(TAG, "agent output format=$fmt -> rate=$sampleRate mulaw=$outputIsMulaw")
+                if (event.inputFormat.isNotBlank() &&
+                    event.inputFormat != ElevenLabsClientMessages.EXPECTED_INPUT_FORMAT
+                ) {
+                    // The mic always streams 16 kHz PCM; a different agent input format degrades STT.
+                    Log.w(TAG, "agent expects user_input_audio_format=${event.inputFormat}; app sends pcm_16000")
+                }
                 listener.onReady(sampleRate)
             }
-            "audio" -> {
-                val b64 = json.optJSONObject("audio_event")?.optString("audio_base_64").orEmpty()
-                if (b64.isNotEmpty()) {
-                    timing.firstAudio()
-                    runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()?.let { raw ->
-                        val pcm = if (outputIsMulaw) ulawToPcm16(raw) else raw
-                        listener.onAgentAudio(pcm)
-                    }
+            is ElevenLabsServerEvent.Audio -> {
+                // Late chunks from a reply the user already interrupted must never play.
+                if (event.base64.isEmpty() || !audioFilter.shouldPlay(event.eventId)) return
+                timing.firstAudio()
+                runCatching { Base64.decode(event.base64, Base64.DEFAULT) }.getOrNull()?.let { raw ->
+                    val pcm = if (outputIsMulaw) ulawToPcm16(raw) else raw
+                    listener.onAgentAudio(pcm)
                 }
+                if (event.isFinal) listener.onGenerationComplete()
             }
-            "user_transcript" -> {
-                val t = json.optJSONObject("user_transcription_event")
-                    ?.optString("user_transcript").orEmpty()
-                if (t.isNotEmpty()) {
-                    timing.speechFinalized()
-                    listener.onUserText(t)
+            is ElevenLabsServerEvent.UserTranscript -> if (event.text.isNotEmpty()) {
+                timing.speechFinalized()
+                listener.onUserText(event.text)
+            }
+            is ElevenLabsServerEvent.AgentResponse ->
+                if (event.text.isNotEmpty()) listener.onAgentText(event.text)
+            is ElevenLabsServerEvent.AgentResponseCorrection ->
+                if (event.corrected != event.original) {
+                    listener.onAgentTextCorrected(event.original, event.corrected)
                 }
-            }
-            "agent_response" -> {
-                val t = json.optJSONObject("agent_response_event")
-                    ?.optString("agent_response").orEmpty()
-                if (t.isNotEmpty()) listener.onAgentText(t)
-            }
-            "interruption" -> {
+            // Requires agent_response_complete in the agent's client_events (see agent_configs/).
+            is ElevenLabsServerEvent.AgentResponseComplete -> listener.onTurnComplete()
+            is ElevenLabsServerEvent.Interruption -> {
+                audioFilter.onInterruption(event.eventId)
                 timing.interrupted()
                 listener.onInterrupted()
             }
-            "ping" -> {
-                val id = json.optJSONObject("ping_event")?.optInt("event_id") ?: return
-                webSocket.send("""{"type":"pong","event_id":$id}""")
-            }
-            else -> Unit
+            is ElevenLabsServerEvent.Ping ->
+                webSocket.send(ElevenLabsClientMessages.pong(event.eventId).toString())
+            is ElevenLabsServerEvent.Other -> Unit
         }
     }
 
@@ -228,14 +229,16 @@ class ElevenLabsProvider(
         listener.onMicPacketQueued(s.queueSize())
     }
 
+    /** A real user turn that triggers a reply. Reserved for the speak-first fallback. */
     override fun sendText(text: String) {
         if (text.isBlank()) return
-        socket?.send(
-            JSONObject()
-                .put("type", "user_message")
-                .put("text", text)
-                .toString()
-        )
+        socket?.send(ElevenLabsClientMessages.userMessage(text).toString())
+    }
+
+    /** Private director cues go out as non-interrupting `contextual_update`, not as user speech. */
+    override fun sendContext(text: String) {
+        if (text.isBlank()) return
+        socket?.send(ElevenLabsClientMessages.contextualUpdate(text).toString())
     }
 
     override fun timingSnapshot(): LiveProviderTimingSnapshot = timing.snapshot()
@@ -250,14 +253,13 @@ class ElevenLabsProvider(
         timing.teardownComplete()
     }
 
-    private fun parseSampleRate(format: String): Int =
-        format.substringAfterLast('_').toIntOrNull() ?: 16_000
-
     private fun isFatal(code: Int, reason: String): Boolean {
         val r = reason.lowercase()
         return code == 1008 || r.contains("quota") || r.contains("credit") ||
             r.contains("unauthorized") || r.contains("limit") || r.contains("exceeded") ||
-            r.contains("authentication") || r.contains("authorization")
+            r.contains("authentication") || r.contains("authorization") ||
+            // A rejected dynamic-variable set fails identically on every retry.
+            r.contains("dynamic variable")
     }
 
     private fun sanitizeStartFailure(e: Exception): String = when (e) {

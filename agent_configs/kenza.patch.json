@@ -1,0 +1,52 @@
+{
+  "conversation_config": {
+    "agent": {
+      "first_message": "{{opening_line}}",
+      "prompt": {
+        "prompt": "{{kenza_persona}}\n\n=== THIS CALL ===\n{{call_direction}}\nLocal time: {{local_time}}\nWhy you called (\"none\" if Mohamed called you): {{call_reason}}\n\n=== PRIVATE CONTINUITY BRIEFING (never recite) ===\n{{continuity_briefing}}"
+      },
+      "dynamic_variables": {
+        "dynamic_variable_placeholders": {
+          "kenza_persona": "You are Kenza, Mohamed's warm, playful girlfriend on a casual phone call. Keep replies short and spoken.",
+          "continuity_briefing": "none",
+          "call_direction": "Mohamed called you and you just picked up. You are the one answering the phone.",
+          "call_reason": "none",
+          "local_time": "unknown",
+          "opening_line": "Allô?"
+        }
+      }
+    },
+    "tts": {
+      "model_id": "eleven_v4_turbo",
+      "agent_output_audio_format": "pcm_16000",
+      "stability": 0.42,
+      "similarity_boost": 0.78,
+      "speed": 1.03
+    },
+    "asr": {
+      "user_input_audio_format": "pcm_16000"
+    },
+    "turn": {
+      "soft_timeout_config": {
+        "timeout_seconds": 2.0,
+        "message": "Mmh…",
+        "use_llm_generated_message": true,
+        "llm_generated_message_prompt_override": "Write one tiny, natural filler Kenza would say on a phone call while thinking, 1-3 words, in the language of the conversation, for example 'mmh…', 'attends…', 'euh, wait…'. No question, no full sentence.",
+        "disable_until_first_user_message": true
+      }
+    },
+    "conversation": {
+      "max_duration_seconds": 3600,
+      "client_events": [
+        "conversation_initiation_metadata",
+        "audio",
+        "interruption",
+        "user_transcript",
+        "agent_response",
+        "agent_response_correction",
+        "agent_response_complete",
+        "ping"
+      ]
+    }
+  }
+}
