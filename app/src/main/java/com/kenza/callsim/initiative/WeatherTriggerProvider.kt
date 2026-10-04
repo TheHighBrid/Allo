@@ -6,6 +6,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.IOException
 
 /**
  * Weather-based "care call" trigger using OpenWeatherMap current conditions: rain, drizzle,
@@ -36,7 +37,7 @@ class WeatherTriggerProvider(
                 if (!response.isSuccessful) return null
                 parseCondition(response.body.string())
             }
-        } catch (e: Exception) {
+        } catch (e: IOException) {
             // The URL carries the API key, so only the exception type is logged.
             Log.w(TAG, "Weather fetch failed: ${e.javaClass.simpleName}")
             null

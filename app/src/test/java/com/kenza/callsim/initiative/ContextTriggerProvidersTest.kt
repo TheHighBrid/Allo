@@ -10,6 +10,8 @@ import org.junit.Test
 
 class ContextTriggerProvidersTest {
 
+    private val city = "Ottawa"
+
     @Test
     fun weatherParsesOpenWeatherMapCondition() {
         assertEquals(
@@ -36,9 +38,9 @@ class ContextTriggerProvidersTest {
             .build()
 
         val noKey = WeatherTriggerProvider(apiKey = " ", client = countingClient)
-        assertFalse(noKey.isConfigured("Ottawa"))
-        assertNull(noKey.getCurrentWeatherCondition("Ottawa"))
-        assertEquals(false to null, noKey.shouldTriggerCall("Ottawa"))
+        assertFalse(noKey.isConfigured(city))
+        assertNull(noKey.getCurrentWeatherCondition(city))
+        assertEquals(false to null, noKey.shouldTriggerCall(city))
 
         val noCity = WeatherTriggerProvider(apiKey = "key", client = countingClient)
         assertFalse(noCity.isConfigured(""))

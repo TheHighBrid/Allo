@@ -33,9 +33,12 @@ class CalendarTriggerProvider(private val context: Context) {
             )?.use { cursor ->
                 if (cursor.moveToFirst()) reasonFor(cursor.getString(0)) else false to null
             } ?: (false to null)
-        } catch (e: Exception) {
+        } catch (e: SecurityException) {
             // Calendar titles are private, so only the exception type is logged.
-            Log.w(TAG, "Calendar query failed: ${e.javaClass.simpleName}")
+            Log.w(TAG, "Calendar query denied: ${e.javaClass.simpleName}")
+            false to null
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Calendar query rejected: ${e.javaClass.simpleName}")
             false to null
         }
     }
