@@ -162,6 +162,8 @@ object MemoryExtractor {
             val kind = runCatching {
                 MemoryKind.valueOf(item.optString("kind", "FACT").uppercase())
             }.getOrDefault(MemoryKind.FACT)
+                // NARRATIVE is reserved for MemoryCompressor output; extraction never produces one.
+                .let { if (it == MemoryKind.NARRATIVE) MemoryKind.FACT else it }
             val owner = runCatching {
                 MemoryOwner.valueOf(item.optString("owner", "USER").uppercase())
             }.getOrDefault(MemoryOwner.USER)

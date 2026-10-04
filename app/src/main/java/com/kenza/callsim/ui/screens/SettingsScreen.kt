@@ -66,6 +66,8 @@ fun SettingsScreen(
     var injectMemory by remember { mutableStateOf(initial.elevenInjectMemory) }
     var contactName by remember { mutableStateOf(initial.contactName) }
     var persona by remember { mutableStateOf(initial.persona) }
+    var userCity by remember { mutableStateOf(initial.userCity) }
+    var weatherKey by remember { mutableStateOf(initial.weatherApiKey) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -161,6 +163,14 @@ fun SettingsScreen(
         Field("Personality (system prompt)", persona, { persona = it },
             "How she should talk", "Loaded with Kenza's encrypted memory before every call.")
 
+        IosSectionCaption("Context triggers")
+        Field("Your city", userCity, { userCity = it }, "Ottawa",
+            "Used for local context such as weather.")
+        Field("OpenWeatherMap API key (optional)", weatherKey, { weatherKey = it },
+            "Leave blank to disable weather",
+            "Prepares weather-aware care calls. Weather-triggered calls are not active yet, and no weather request is made without a key.",
+            secret = true)
+
         Spacer(Modifier.height(24.dp))
         validationError?.let { error ->
             Text(error, color = IOSColors.Red, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
@@ -192,6 +202,8 @@ fun SettingsScreen(
                         elevenInjectMemory = injectMemory,
                         contactName = contactName,
                         persona = persona,
+                        weatherApiKey = weatherKey,
+                        userCity = userCity,
                     )
                 )
                 onBack()
