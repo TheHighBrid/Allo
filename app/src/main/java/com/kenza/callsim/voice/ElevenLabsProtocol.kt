@@ -28,7 +28,7 @@ internal sealed class ElevenLabsServerEvent {
                     }
                 "audio" -> json.optJSONObject("audio_event").let {
                     val isFinal = it?.optBoolean("is_final", false) ?: false
-                    Audio(it.string("audio_base_64"), it.intOrNull("event_id"), isFinal)
+                    Audio(it.string("audio_base_64"), it.intOrNull(EVENT_ID), isFinal)
                 }
                 "user_transcript" ->
                     UserTranscript(json.optJSONObject("user_transcription_event").string("user_transcript"))
@@ -37,12 +37,14 @@ internal sealed class ElevenLabsServerEvent {
                     AgentResponseCorrection(it.string("original_agent_response"), it.string("corrected_agent_response"))
                 }
                 "agent_response_complete" ->
-                    AgentResponseComplete(json.optJSONObject("agent_response_complete_event").intOrNull("event_id"))
-                "interruption" -> Interruption(json.optJSONObject("interruption_event").intOrNull("event_id"))
-                "ping" -> json.optJSONObject("ping_event").intOrNull("event_id")?.let(::Ping) ?: Other(type)
+                    AgentResponseComplete(json.optJSONObject("agent_response_complete_event").intOrNull(EVENT_ID))
+                "interruption" -> Interruption(json.optJSONObject("interruption_event").intOrNull(EVENT_ID))
+                "ping" -> json.optJSONObject("ping_event").intOrNull(EVENT_ID)?.let(::Ping) ?: Other(type)
                 else -> Other(type)
             }
         }
+
+        private const val EVENT_ID = "event_id"
 
         private fun JSONObject?.string(name: String): String = this?.optString(name).orEmpty()
 

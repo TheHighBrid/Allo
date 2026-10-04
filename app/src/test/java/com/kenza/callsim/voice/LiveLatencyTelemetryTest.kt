@@ -17,8 +17,8 @@ class LiveLatencyTelemetryTest {
         t.localSpeechStart(atMs = 100)
         t.localSpeechEnd(atMs = 1_000)
         now = 1_400; t.modelAudio()
-        now = 1_450; t.onQueued(queueMs = 40)
-        now = 1_520; t.onPlaybackHeadAdvanced()
+        now = 1_450; t.playback.onQueued(queueMs = 40)
+        now = 1_520; t.playback.onPlaybackHeadAdvanced()
         val m = t.currentMetrics()
         assertEquals(520L, m.speechEndToPlaybackMs())
         assertEquals(400L, m.speechEndToFirstPacketMs())
@@ -29,11 +29,11 @@ class LiveLatencyTelemetryTest {
         val t = telemetry()
         t.localSpeechStart(atMs = 0)
         t.localSpeechEnd(atMs = 500)
-        now = 900; t.onPlaybackHeadAdvanced()
+        now = 900; t.playback.onPlaybackHeadAdvanced()
         t.localSpeechStart(atMs = 1_200)
         t.localSpeechEnd(atMs = 1_900)
         now = 1_450; t.interrupted()
-        now = 1_480; t.onPlaybackStopped()
+        now = 1_480; t.playback.onPlaybackStopped()
         val m = t.currentMetrics()
         assertEquals(500L, m.localSpeechEndMs)
         assertEquals(250L, m.bargeInToInterruptMs())
@@ -43,7 +43,7 @@ class LiveLatencyTelemetryTest {
     @Test
     fun playbackStopWithoutInterruptionIsIgnored() {
         val t = telemetry()
-        now = 10; t.onPlaybackStopped()
+        now = 10; t.playback.onPlaybackStopped()
         assertNull(t.currentMetrics().playbackStoppedMs)
         assertNull(LiveTurnMetrics(1, localSpeechEndMs = 50, firstPlaybackHeadAdvanceMs = 40).speechEndToPlaybackMs())
     }
@@ -51,9 +51,9 @@ class LiveLatencyTelemetryTest {
     @Test
     fun underrunsAccumulatePerTurnAndResetOnComplete() {
         val t = telemetry()
-        t.onUnderruns(2)
-        t.onUnderruns(0)
-        t.onUnderruns(1)
+        t.playback.onUnderruns(2)
+        t.playback.onUnderruns(0)
+        t.playback.onUnderruns(1)
         assertEquals(3, t.currentMetrics().underrunsDelta)
         t.complete(route = ROUTE, sessionAgeMs = 0)
         assertEquals(0, t.currentMetrics().underrunsDelta)
@@ -74,8 +74,8 @@ class LiveLatencyTelemetryTest {
         listOf(300L, 500L, 700L).forEachIndexed { index, latency ->
             val base = index * 10_000L
             t.localSpeechEnd(atMs = base)
-            now = base + latency; t.onPlaybackHeadAdvanced()
-            t.onUnderruns(1)
+            now = base + latency; t.playback.onPlaybackHeadAdvanced()
+            t.playback.onUnderruns(1)
             t.complete(route = ROUTE, sessionAgeMs = base)
         }
         val timing = LiveProviderTimingSnapshot(
@@ -84,7 +84,7 @@ class LiveLatencyTelemetryTest {
             teardownStartedMs = 30_000,
             teardownCompleteMs = 30_040,
         )
-        val text = t.sessionSummary(provider = "eleven\"labs", timing = timing)
+        val text = t.session.summary(provider = "eleven\"labs", timing = timing)
         val json = JSONObject(text)
         assertEquals("elevenlabs", json.getString("provider"))
         assertEquals(3, json.getInt("turns"))
@@ -101,7 +101,7 @@ class LiveLatencyTelemetryTest {
 
     @Test
     fun perTurnJsonStaysContentFree() {
-        val text = telemetry().toJson(LiveTurnMetrics(1, localSpeechEndMs = 1, firstPlaybackHeadAdvanceMs = 2))
+        val text = LiveTurnJson.encode(LiveTurnMetrics(1, localSpeechEndMs = 1, firstPlaybackHeadAdvanceMs = 2))
         assertEquals(1L, JSONObject(text).getLong("speechEndToPlaybackMs"))
         assertFalse(text.contains("audio", ignoreCase = true))
     }

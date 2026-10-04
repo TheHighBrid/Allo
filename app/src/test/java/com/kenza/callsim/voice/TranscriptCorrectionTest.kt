@@ -13,7 +13,7 @@ class TranscriptCorrectionTest {
         assembler.appendUser("hey")
         assembler.appendAgent(FULL)
         assertTrue(assembler.correctAgent(FULL, CUT))
-        assertEquals(listOf("user" to "hey", "agent" to CUT), assembler.commit())
+        assertEquals(listOf(USER to "hey", AGENT to CUT), assembler.commit())
     }
 
     @Test
@@ -22,25 +22,27 @@ class TranscriptCorrectionTest {
         assembler.appendAgent(CUT)
         assertFalse(assembler.correctAgent("something else", "x"))
         assertFalse(assembler.correctAgent("  ", "x"))
-        assertEquals(listOf("agent" to CUT), assembler.commit())
+        assertEquals(listOf(AGENT to CUT), assembler.commit())
     }
 
     @Test
     fun correctsMostRecentCommittedAgentLine() {
-        val entries = mutableListOf("agent" to FULL, "user" to "wait", "agent" to FULL)
+        val entries = mutableListOf(AGENT to FULL, USER to "wait", AGENT to FULL)
         assertTrue(TranscriptAssembler.correctCommitted(entries, FULL, CUT))
-        assertEquals(listOf("agent" to FULL, "user" to "wait", "agent" to CUT), entries)
+        assertEquals(listOf(AGENT to FULL, USER to "wait", AGENT to CUT), entries)
     }
 
     @Test
     fun correctionToNothingRemovesTheLine() {
-        val entries = mutableListOf("user" to "stop", "agent" to FULL)
+        val entries = mutableListOf(USER to "stop", AGENT to FULL)
         assertTrue(TranscriptAssembler.correctCommitted(entries, FULL, ""))
-        assertEquals(listOf("user" to "stop"), entries)
+        assertEquals(listOf(USER to "stop"), entries)
         assertFalse(TranscriptAssembler.correctCommitted(entries, FULL, CUT))
     }
 
     private companion object {
+        const val AGENT = "agent"
+        const val USER = "user"
         const val FULL = "So I was thinking we could go to the market tomorrow"
         const val CUT = "So I was thinking"
     }

@@ -32,6 +32,15 @@ internal object KenzaCallOpening {
     }
 }
 
+/** Per-call inputs for [KenzaDynamicVariables.build]. */
+internal data class KenzaCallInputs(
+    val persona: String,
+    val continuityBriefing: String,
+    val callReason: String,
+    val direction: CallDirection,
+    val openingLine: String,
+)
+
 /**
  * ElevenLabs `dynamic_variables` that carry the persona and memory into the agent's own prompt
  * and first message. Unlike the full prompt override, dynamic variables need no Security toggle.
@@ -56,20 +65,13 @@ internal object KenzaDynamicVariables {
      * Every variable is always present so the agent never sees an unresolved {{name}}. Only
      * [OPENING_LINE] may be empty, deliberately, so a reconnect does not replay the greeting.
      */
-    fun build(
-        persona: String,
-        continuityBriefing: String,
-        callReason: String,
-        direction: CallDirection,
-        openingLine: String,
-        now: ZonedDateTime,
-    ): Map<String, String> = linkedMapOf(
-        PERSONA to persona.trim().ifEmpty { NONE },
-        CONTINUITY_BRIEFING to continuityBriefing.trim().ifEmpty { NONE },
-        CALL_DIRECTION to describe(direction),
-        CALL_REASON to callReason.trim().ifEmpty { NONE },
+    fun build(call: KenzaCallInputs, now: ZonedDateTime): Map<String, String> = linkedMapOf(
+        PERSONA to call.persona.trim().ifEmpty { NONE },
+        CONTINUITY_BRIEFING to call.continuityBriefing.trim().ifEmpty { NONE },
+        CALL_DIRECTION to describe(call.direction),
+        CALL_REASON to call.callReason.trim().ifEmpty { NONE },
         LOCAL_TIME to "${TIME_FORMAT.format(now)} (${now.zone.id})",
-        OPENING_LINE to openingLine,
+        OPENING_LINE to call.openingLine,
     )
 
     fun describe(direction: CallDirection): String = when (direction) {

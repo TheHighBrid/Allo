@@ -247,7 +247,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 // Now we know the agent's audio rate — open the player to match,
                 // then start streaming the mic and go live.
                 if (player == null) {
-                    player = PcmPlayer(outputSampleRate, telemetry).also { it.start() }
+                    player = PcmPlayer(outputSampleRate, telemetry.playback).also { it.start() }
                 }
                 if (mic == null) {
                     speechEnergy.reset()
@@ -363,11 +363,13 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 val variables = if (config.elevenDynamicVariables) {
                     sessionOpeningLine = KenzaCallOpening.openingLine(callDirection(), openingHeardThisCall)
                     KenzaDynamicVariables.build(
-                        persona = persona,
-                        continuityBriefing = memoryContext,
-                        callReason = initiativeContext,
-                        direction = callDirection(),
-                        openingLine = sessionOpeningLine,
+                        KenzaCallInputs(
+                            persona = persona,
+                            continuityBriefing = memoryContext,
+                            callReason = initiativeContext,
+                            direction = callDirection(),
+                            openingLine = sessionOpeningLine,
+                        ),
                         now = java.time.ZonedDateTime.now(),
                     )
                 } else emptyMap()

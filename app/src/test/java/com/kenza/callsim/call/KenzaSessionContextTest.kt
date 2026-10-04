@@ -33,12 +33,15 @@ class KenzaSessionContextTest {
 
     @Test
     fun dynamicVariablesCoverEveryNameAndTrimContext() {
-        val vars = KenzaDynamicVariables.build(
+        val inputs = KenzaCallInputs(
             persona = "  persona  ",
             continuityBriefing = "\n\nbriefing\n",
             callReason = "",
             direction = CallDirection.MOHAMED_CALLED,
             openingLine = "Allô?",
+        )
+        val vars = KenzaDynamicVariables.build(
+            inputs,
             now = ZonedDateTime.of(2026, 10, 4, 21, 5, 0, 0, ZoneId.of("America/Toronto")),
         )
         assertEquals(KenzaDynamicVariables.ALL.toSet(), vars.keys)

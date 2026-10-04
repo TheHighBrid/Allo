@@ -146,20 +146,99 @@ internal object LatencyStats {
         "\"$name\":{\"n\":${values.size},\"p50\":${percentile(values, 50)},\"p95\":${percentile(values, 95)}}"
 }
 
+/** Content-free per-session aggregation of completed turns. */
+class LiveSessionStats(private val sessionStartedMs: Long) {
+    private var firstPlaybackMs: Long? = null
+    private val turns = mutableListOf<LiveTurnMetrics>()
+
+    @Synchronized fun onPlayback(atMs: Long) {
+        if (firstPlaybackMs == null) firstPlaybackMs = atMs
+    }
+
+    @Synchronized fun record(turn: LiveTurnMetrics) {
+        turns += turn
+        if (turns.size > MAX_SUMMARY_TURNS) turns.removeAt(0)
+    }
+
+    /**
+     * Content-free per-session latency summary (P50/P95 over completed turns) plus the provider's
+     * connection/teardown timings.
+     */
+    @Synchronized fun summary(provider: String, timing: LiveProviderTimingSnapshot?): String {
+        val done = turns.toList()
+        val startToFirstPlayback = firstPlaybackMs?.let { it - sessionStartedMs }
+        val spans = listOf<Pair<String, (LiveTurnMetrics) -> Long?>>(
+            "speechEndToPlaybackMs" to LiveTurnMetrics::speechEndToPlaybackMs,
+            "speechEndToFirstPacketMs" to LiveTurnMetrics::speechEndToFirstPacketMs,
+            "bargeInToInterruptMs" to LiveTurnMetrics::bargeInToInterruptMs,
+            "interruptToPlaybackStopMs" to LiveTurnMetrics::interruptToPlaybackStopMs,
+        )
+        return buildString {
+            append("{\"provider\":\"").append(provider.filter { it.isLetterOrDigit() || it == '_' }).append("\"")
+            append(",\"turns\":").append(done.size)
+            append(",\"interruptedTurns\":").append(done.count { it.interrupted })
+            append(",\"underruns\":").append(done.sumOf { it.underrunsDelta })
+            append(",\"startToFirstPlaybackMs\":").append(startToFirstPlayback)
+            append(",\"connectionToReadyMs\":").append(timing?.connectionToReadyMs())
+            append(",\"teardownMs\":").append(timing?.teardownDurationMs())
+            spans.forEach { (name, span) ->
+                append(',').append(LatencyStats.summarize(name, done.mapNotNull(span)))
+            }
+            append('}')
+        }
+    }
+
+    private companion object {
+        const val MAX_SUMMARY_TURNS = 500
+    }
+}
+
 /** Content-free per-turn state. No method accepts transcript or media payloads. */
 class LiveTurnTelemetry(
     private val enabled: Boolean,
     private val clockMs: () -> Long = { System.currentTimeMillis() },
-) : PlaybackMetrics {
+) {
     init {
         LiveDiagnosticsGate.enabled = enabled
     }
 
     private var nextId = 1L
     private var current = LiveTurnMetrics(nextId)
-    private val sessionStartedMs = clockMs()
-    private var sessionFirstPlaybackMs: Long? = null
-    private val completedTurns = mutableListOf<LiveTurnMetrics>()
+
+    /** Per-session aggregation; logged by [logSessionSummary] when diagnostics are enabled. */
+    val session = LiveSessionStats(clockMs())
+
+    /** Playback-side callbacks for [PcmPlayer]. */
+    val playback: PlaybackMetrics = object : PlaybackMetrics {
+        override fun onQueued(queueMs: Int) = update {
+            it.copy(
+                firstPlaybackQueuedMs = it.firstPlaybackQueuedMs ?: clockMs(),
+                playbackQueuePeakMs = maxOf(it.playbackQueuePeakMs, queueMs),
+            )
+        }
+
+        override fun onPlaybackHeadAdvanced() {
+            val now = clockMs()
+            session.onPlayback(now)
+            update { if (it.firstPlaybackHeadAdvanceMs == null) it.copy(firstPlaybackHeadAdvanceMs = now) else it }
+        }
+
+        override fun onUnderruns(delta: Int) {
+            if (delta > 0) update { it.copy(underrunsDelta = it.underrunsDelta + delta) }
+        }
+
+        override fun onPlaybackStopped() = update {
+            if (it.interruptionReceivedMs != null && it.playbackStoppedMs == null) {
+                it.copy(playbackStoppedMs = clockMs())
+            } else {
+                it
+            }
+        }
+
+        private fun update(change: (LiveTurnMetrics) -> LiveTurnMetrics) {
+            synchronized(this@LiveTurnTelemetry) { current = change(current) }
+        }
+    }
 
     @Synchronized fun localSpeechStart(atMs: Long = clockMs()) {
         if (current.localSpeechStartMs == null) {
@@ -181,25 +260,11 @@ class LiveTurnTelemetry(
         }
     }
 
-    @Synchronized fun noteUnderruns(delta: Int) {
-        if (delta <= 0) return
-        current = current.copy(underrunsDelta = current.underrunsDelta + delta)
-    }
-
-    override fun onUnderruns(delta: Int) = noteUnderruns(delta)
-
-    @Synchronized override fun onPlaybackStopped() {
-        if (current.interruptionReceivedMs != null && current.playbackStoppedMs == null) {
-            current = current.copy(playbackStoppedMs = clockMs())
-        }
-    }
-
     @Synchronized fun currentMetrics(): LiveTurnMetrics = current
 
     @Synchronized fun micQueued(socketBytes: Long) {
-        val now = clockMs()
         current = current.copy(
-            lastMicPacketQueuedMs = now,
+            lastMicPacketQueuedMs = clockMs(),
             socketQueuePeakBytes = maxOf(current.socketQueuePeakBytes, socketBytes),
         )
     }
@@ -207,21 +272,6 @@ class LiveTurnTelemetry(
     @Synchronized fun modelAudio() {
         if (current.firstModelPacketReceivedMs == null) {
             current = current.copy(firstModelPacketReceivedMs = clockMs())
-        }
-    }
-
-    @Synchronized override fun onQueued(queueMs: Int) {
-        current = current.copy(
-            firstPlaybackQueuedMs = current.firstPlaybackQueuedMs ?: clockMs(),
-            playbackQueuePeakMs = maxOf(current.playbackQueuePeakMs, queueMs),
-        )
-    }
-
-    @Synchronized override fun onPlaybackHeadAdvanced() {
-        val now = clockMs()
-        if (sessionFirstPlaybackMs == null) sessionFirstPlaybackMs = now
-        if (current.firstPlaybackHeadAdvanceMs == null) {
-            current = current.copy(firstPlaybackHeadAdvanceMs = now)
         }
     }
 
@@ -246,49 +296,19 @@ class LiveTurnTelemetry(
             route = route,
             sessionAgeMs = sessionAgeMs,
         )
-        if (enabled) Log.i("LiveTurnMetrics", toJson(done))
-        completedTurns += done
-        if (completedTurns.size > MAX_SUMMARY_TURNS) completedTurns.removeAt(0)
+        if (enabled) Log.i("LiveTurnMetrics", LiveTurnJson.encode(done))
+        session.record(done)
         current = LiveTurnMetrics(++nextId)
     }
 
-    /**
-     * Content-free per-session latency summary (P50/P95 over completed turns) plus the provider's
-     * connection/teardown timings. Returned for tests; only logged when diagnostics are enabled.
-     */
-    @Synchronized fun sessionSummary(provider: String, timing: LiveProviderTimingSnapshot?): String {
-        val turns = completedTurns.toList()
-        val startToFirstPlayback = sessionFirstPlaybackMs?.let { it - sessionStartedMs }
-        return buildString {
-            append("{\"provider\":\"").append(provider.filter { it.isLetterOrDigit() || it == '_' }).append("\"")
-            append(",\"turns\":").append(turns.size)
-            append(",\"interruptedTurns\":").append(turns.count { it.interrupted })
-            append(",\"underruns\":").append(turns.sumOf { it.underrunsDelta })
-            append(",\"startToFirstPlaybackMs\":").append(startToFirstPlayback)
-            append(",\"connectionToReadyMs\":").append(timing?.connectionToReadyMs())
-            append(",\"teardownMs\":").append(timing?.teardownDurationMs())
-            val spans = listOf<Pair<String, (LiveTurnMetrics) -> Long?>>(
-                "speechEndToPlaybackMs" to LiveTurnMetrics::speechEndToPlaybackMs,
-                "speechEndToFirstPacketMs" to LiveTurnMetrics::speechEndToFirstPacketMs,
-                "bargeInToInterruptMs" to LiveTurnMetrics::bargeInToInterruptMs,
-                "interruptToPlaybackStopMs" to LiveTurnMetrics::interruptToPlaybackStopMs,
-            )
-            spans.forEach { (name, span) ->
-                append(',').append(LatencyStats.summarize(name, turns.mapNotNull(span)))
-            }
-            append('}')
-        }
-    }
-
     fun logSessionSummary(provider: String, timing: LiveProviderTimingSnapshot?) {
-        if (enabled) Log.i("LiveSessionMetrics", sessionSummary(provider, timing))
+        if (enabled) Log.i("LiveSessionMetrics", session.summary(provider, timing))
     }
+}
 
-    private companion object {
-        const val MAX_SUMMARY_TURNS = 500
-    }
-
-    fun toJson(m: LiveTurnMetrics): String = buildString {
+/** Serializes one turn's timings; field names are fixed and carry no content. */
+internal object LiveTurnJson {
+    fun encode(m: LiveTurnMetrics): String = buildString {
         val fields = listOf<Pair<String, Any?>>(
             "turnId" to m.turnId,
             "localSpeechStartMs" to m.localSpeechStartMs,
