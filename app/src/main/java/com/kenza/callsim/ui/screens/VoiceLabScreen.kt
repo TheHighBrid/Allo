@@ -76,7 +76,7 @@ fun VoiceLabScreen(
     ) {
         Text("Kenza Voice Lab", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Blind A/B: rate how natural, responsive, and "Kenza" the sample feels. " +
+            "Blind A/B: rate naturalness, turn-taking, and how much the sample sounds like Kenza. " +
                 "Names stay hidden until you reveal them.",
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -124,9 +124,7 @@ fun VoiceLabScreen(
         ) { Text("Save rating") }
 
         Button(
-            onClick = {
-                candidate?.id?.let(onApplyVoice)
-            },
+            onClick = { candidate?.id?.let(onApplyVoice) },
             modifier = Modifier.fillMaxWidth(),
             enabled = candidate != null,
         ) { Text("Apply this voice in Settings") }
