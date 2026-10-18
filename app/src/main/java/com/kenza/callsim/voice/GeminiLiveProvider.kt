@@ -29,7 +29,8 @@ class GeminiLiveProvider(
         private const val HOST = "generativelanguage.googleapis.com"
         private const val MAX_INTERNAL_RESUMES = 4
         const val OUTPUT_SAMPLE_RATE = 24_000
-        const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
+        /** Consumer AI Studio Live native-audio model (affective dialog, low latency). */
+        const val DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-09-2025"
         const val DEFAULT_VOICE = "Kore"
     }
 
