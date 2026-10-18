@@ -12,14 +12,21 @@ object GeminiLiveTuning {
     const val VAD_PREFIX_PADDING_MS = 20
 
     /**
-     * Natural phone cadence without the two-second "hold queue" effect.
-     * Kept at 600 ms deliberately: barge-in/silence retunes (#60) require
-     * measured device evidence before changing this further.
+     * Server-side silence fallback when the client does not send audioStreamEnd.
+     * Google's recommended window is ~500–800 ms; keep the high end so natural
+     * mid-sentence pauses are not split when hybrid client endpointing misses.
      */
-    const val VAD_SILENCE_DURATION_MS = 600
+    const val VAD_SILENCE_DURATION_MS = 800
+
+    /**
+     * Local end-of-turn hangover used to fire audioStreamEnd (hybrid VAD).
+     * 13 × 40 ms ≈ 520 ms — inside Google's recommended client endpoint zone,
+     * faster than waiting for the full server silence timeout alone.
+     */
+    const val CLIENT_ENDPOINT_HANGOVER_CHUNKS = 13
 
     /** Keep client playback buffering short so streamed speech starts promptly. */
-    const val OUTPUT_BUFFER_MS = 100
+    const val OUTPUT_BUFFER_MS = 80
 
     /** Soft diagnostics threshold. Crossing it must never discard valid speech. */
     const val MAX_PLAYBACK_QUEUE_MS = 400
@@ -29,4 +36,7 @@ object GeminiLiveTuning {
 
     /** Covers the hardware/output tail after the app queue has drained. */
     const val PLAYBACK_TAIL_GUARD_MS = 160
+
+    /** Minimum gap between consecutive client audioStreamEnd signals. */
+    const val CLIENT_ENDPOINT_MIN_INTERVAL_MS = 700L
 }
