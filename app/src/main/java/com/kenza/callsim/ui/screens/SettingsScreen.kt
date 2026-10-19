@@ -289,7 +289,7 @@ private fun Field(
 @Composable
 private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-        Column(modifier.weight(1f)) {
+        Column(Modifier.weight(1f)) {
             Text(title, color = Color.White, fontSize = 15.sp)
             Text(detail, color = IOSColors.SecondaryLabel, fontSize = 12.sp)
         }
