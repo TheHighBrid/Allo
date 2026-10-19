@@ -11,12 +11,14 @@ import com.kenza.callsim.config.SettingsData
 import com.kenza.callsim.initiative.InitiativeEngine
 import com.kenza.callsim.initiative.InitiativeStore
 import com.kenza.callsim.memory.MemoryContext
-import com.kenza.callsim.memory.MemoryExtractor
 import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.schedule.IncomingCallService
+import com.kenza.callsim.schedule.ScheduledCallRuntime
+import com.kenza.callsim.voice.AudioRoutePolicy
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.LiveTurnTelemetry
+import com.kenza.callsim.voice.LocalSpeechEnergyTracker
 import com.kenza.callsim.voice.MicRecorder
 import com.kenza.callsim.voice.PcmPlayer
 import com.kenza.callsim.voice.TranscriptAssembler
@@ -50,67 +52,62 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var mic: MicRecorder? = null
     private var player: PcmPlayer? = null
     private var telemetry = LiveTurnTelemetry(false)
+    private val speechEnergy = LocalSpeechEnergyTracker(
+        endHangoverChunks = com.kenza.callsim.voice.GeminiLiveTuning.CLIENT_ENDPOINT_HANGOVER_CHUNKS,
+    )
+    private var lastClientEndpointMs = 0L
     private val transcriptAssembler = TranscriptAssembler()
+    private val conversationRepair = ConversationRepairEngine()
 
-    // Long-term memory: transcript accumulates during a call and is distilled
-    // into durable memories when it ends.
     private val memory = MemoryStore(app)
     private val initiativeStore = InitiativeStore(app)
     private val transcript = mutableListOf<Pair<String, String>>()
     private var callStartedAt = 0L
 
-    // When Kenza initiated the call, this opaque token points back into the
-    // encrypted memory snapshot. No memory text is copied into Android prefs.
     private var pendingInitiativeToken: String? = null
     private var initiativeOpeningSent = false
 
-    // Natural call ending.
+    private var openingHeardThisCall = false
+    private var sessionAgentAudioHeard = false
+    private var sessionOpeningLine = ""
+    private var sessionProviderName = ""
+
     private var endCallJob: Job? = null
+    private var silenceRepairJob: Job? = null
 
     private var timerJob: Job? = null
     private var speakingResetJob: Job? = null
     private var dialingJob: Job? = null
     private var pendingStartAfterPermission = false
 
-    // Auto-reconnect: when a provider ends a session (e.g. a server-side
-    // conversation-duration limit) we transparently re-establish the call. To
-    // avoid replay loops (e.g. ElevenLabs out of quota replaying its greeting),
-    // the retry budget only refreshes once the user has actually spoken — proof
-    // of a real two-way call rather than a failing reconnect cycle. Fatal causes
-    // (out of quota, bad key, mic failure) never reconnect.
     private var userEnded = false
     private var reconnectAttempts = 0
     private val maxConsecutiveReconnects = 4
     private var hadUserInteraction = false
 
-    // ElevenLabs multi-key failover: rotate through (agentId, apiKey) pairs as
-    // each account runs out of credit, so the call keeps going uninterrupted.
     private var elevenCreds: List<Pair<String, String>> = emptyList()
     private var credIndex = 0
 
-    // ---- Incoming / outgoing flow -------------------------------------------
+    init {
+        AudioRoutePolicy.earpieceFullDuplexEnabled = config.earpieceFullDuplex
+    }
 
     fun simulateIncomingCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
+        if (!ScheduledCallRuntime.tryStartUserInitiatedCall()) return
         armIncomingInitiative(explicitToken = null, countAgainstCooldown = false)
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
         ringtone.start()
     }
 
-    /**
-     * Triggered by a fired schedule (via the full-screen notification). Rings
-     * from any idle/ended state; ignored if a call is already in progress.
-     *
-     * Autonomous calls arrive with a pre-selected memory-backed token. Explicit
-     * user schedules do not, so we select a fresh topic at ring time and still
-     * let Kenza own the opening instead of making the user host her call.
-     */
     fun onScheduledIncomingCall(initiativeToken: String? = null) {
         val phase = _state.value.phase
-        if (phase != CallPhase.IDLE && phase != CallPhase.ENDED) return
+        if (phase == CallPhase.INCOMING) return
+        if (phase != CallPhase.IDLE && phase != CallPhase.ENDED) {
+            IncomingCallService.stop(getApplication())
+            return
+        }
         armIncomingInitiative(initiativeToken, countAgainstCooldown = initiativeToken == null)
-        // The foreground IncomingCallService already rings + vibrates; just show
-        // the incoming UI so we don't double-ring.
         _state.update { it.copy(phase = CallPhase.INCOMING, errorMessage = null) }
     }
 
@@ -121,7 +118,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             now = now,
             excludedTokens = initiativeStore.history().recentTokens,
         )?.token ?: InitiativeEngine.SOCIAL_TOKEN
-
         pendingInitiativeToken = selected
         initiativeOpeningSent = false
         if (countAgainstCooldown) initiativeStore.markInitiated(selected, now)
@@ -129,17 +125,13 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun placeCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
-        // Mohamed initiated this call. Kenza still has conversational agency once
-        // it starts, but she does not pretend that she was the caller.
+        if (!ScheduledCallRuntime.tryStartUserInitiatedCall()) return
         pendingInitiativeToken = null
         initiativeOpeningSent = false
         ringtone.stop()
         _state.update { it.copy(phase = CallPhase.DIALING, errorMessage = null) }
         dialingJob?.cancel()
-        dialingJob = viewModelScope.launch {
-            delay(1500) // simulated "calling…"
-            if (_state.value.phase == CallPhase.DIALING) beginConnecting()
-        }
+        dialingJob = viewModelScope.launch { beginConnecting() }
     }
 
     fun answerIncoming() {
@@ -161,78 +153,68 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         reconnectAttempts = 0
         hadUserInteraction = false
         initiativeOpeningSent = false
+        openingHeardThisCall = false
         elevenCreds = config.elevenCredentials()
         credIndex = 0
         transcript.clear()
         callStartedAt = System.currentTimeMillis()
         _state.update { it.copy(phase = CallPhase.CONNECTING) }
-        if (!config.isConfigured) {
-            // Pure UI demo — show the live call screen without needing the mic.
-            onSessionActive(demo = true)
-        } else {
-            ensureMicThenStart()
-        }
+        if (!config.isConfigured) onSessionActive(demo = true) else ensureMicThenStart()
     }
-
-    // ---- Mic permission ------------------------------------------------------
 
     private fun ensureMicThenStart() {
         val ctx = getApplication<Application>()
         val granted = ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            startVoiceSession()
-        } else {
+        if (granted) startVoiceSession()
+        else {
             pendingStartAfterPermission = true
-            // UI observes this and launches the system permission dialog.
             _state.update { it.copy(errorMessage = NEED_MIC) }
         }
     }
 
     fun onMicPermissionResult(granted: Boolean) {
-        if (_state.value.errorMessage == NEED_MIC) {
-            _state.update { it.copy(errorMessage = null) }
-        }
+        if (_state.value.errorMessage == NEED_MIC) _state.update { it.copy(errorMessage = null) }
         if (!pendingStartAfterPermission) return
         pendingStartAfterPermission = false
-        if (granted) {
-            startVoiceSession()
-        } else {
-            _state.update {
-                it.copy(
-                    phase = CallPhase.ENDED,
-                    errorMessage = "Microphone permission is required for the call."
-                )
-            }
-            returnHomeSoon()
-        }
+        if (granted) startVoiceSession()
+        else finishCall("Microphone permission is required for the call.")
     }
-
-    // ---- Live voice session --------------------------------------------------
 
     private fun startVoiceSession() {
         if (!config.isConfigured) {
-            // Still allow the UI to "connect" in demo mode so the call screen works.
             onSessionActive(demo = true)
             return
         }
-
         configureAudioRouting()
         telemetry = LiveTurnTelemetry(config.diagnosticsEnabled)
+        speechEnergy.reset()
+        sessionAgentAudioHeard = false
+        sessionOpeningLine = ""
+        sessionProviderName = config.provider.name.lowercase()
 
         val ai = buildProvider(object : VoiceProvider.Listener {
             override fun onConnected() {
                 _state.update { it.copy(phase = CallPhase.CONNECTING) }
             }
             override fun onReady(outputSampleRate: Int) {
-                // Now we know the agent's audio rate — open the player to match,
-                // then start streaming the mic and go live.
                 if (player == null) {
-                    player = PcmPlayer(outputSampleRate, telemetry).also { it.start() }
+                    player = PcmPlayer(outputSampleRate, telemetry.playback).also { it.start() }
                 }
                 if (mic == null) {
+                    speechEnergy.reset()
                     mic = MicRecorder(
-                        onChunk = { chunk -> client?.sendAudio(chunk) },
+                        onChunk = { chunk ->
+                            when (speechEnergy.onPcm(chunk)) {
+                                LocalSpeechEnergyTracker.Event.START -> telemetry.localSpeechStart()
+                                LocalSpeechEnergyTracker.Event.END -> {
+                                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
+                                    maybeClientEndpoint()
+                                }
+                                null -> Unit
+                            }
+                            client?.sendAudio(chunk)
+                        },
                         onError = { msg -> handleDisconnect("Microphone: $msg", fatal = true) },
                         onStreaming = { _state.update { it.copy(micStreaming = true) } }
                     ).also {
@@ -243,25 +225,44 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 onSessionActive(demo = false)
             }
             override fun onAgentAudio(pcm: ByteArray) {
+                sessionAgentAudioHeard = true
+                openingHeardThisCall = true
                 mic?.agentSpeaking = true
                 telemetry.modelAudio()
                 player?.enqueue(pcm)
                 markSpeaking()
             }
             override fun onUserText(text: String) {
-                // Real two-way interaction — a genuine call, so allow further reconnects.
                 hadUserInteraction = true
+                openingHeardThisCall = true
+                player?.markTurnBoundary()
+                silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcriptAssembler.appendUser(text)
-                onConversationLine(fromUser = true, text = text)
+                val repair = conversationRepair.onUserText(text)
+                onConversationLine(fromUser = true, text = text, repair = repair)
+                repair?.let(::dispatchConversationRepair)
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
             }
             override fun onAgentText(text: String) {
+                conversationRepair.onAgentText(text)
                 transcriptAssembler.appendAgent(text)
                 onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
             }
+            override fun onAgentTextCorrected(original: String, corrected: String) {
+                if (!transcriptAssembler.correctAgent(original, corrected)) {
+                    TranscriptAssembler.correctCommitted(transcript, original, corrected)
+                }
+                _state.update {
+                    if (it.lastAgentText.trim() == original.trim()) it.copy(lastAgentText = corrected) else it
+                }
+            }
             override fun onInterrupted() {
+                if (speechEnergy.forceEnd() == LocalSpeechEnergyTracker.Event.END) {
+                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
+                }
                 telemetry.interrupted()
+                silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcript += transcriptAssembler.commit()
                 player?.flush()
                 _state.update { it.copy(activity = AgentActivity.LISTENING) }
@@ -270,7 +271,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             override fun onMicPacketQueued(socketQueueBytes: Long) = telemetry.micQueued(socketQueueBytes)
             override fun onGenerationComplete() = telemetry.generationComplete()
             override fun onTurnComplete() {
+                player?.markTurnBoundary()
                 transcript += transcriptAssembler.commit()
+                conversationRepair.onAgentTurnComplete(System.currentTimeMillis())
+                armSilenceRepairCheck()
                 telemetry.complete(
                     route = if (_state.value.isSpeakerOn) "speakerphone" else "earpiece_or_headset",
                     sessionAgeMs = (System.currentTimeMillis() - callStartedAt).coerceAtLeast(0),
@@ -287,32 +291,47 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         val now = System.currentTimeMillis()
         val memoryContext = MemoryContext.build(memory, config.contactName, now)
         val initiativeContext = initiativePrompt(now)
-
         return when (config.provider) {
             ProviderType.GEMINI -> GeminiLiveProvider(
                 apiKey = config.geminiApiKey,
                 model = config.geminiModel,
                 voiceName = config.geminiVoice,
-                // Persona + delivery + agency + live memory + this-call motive.
-                systemPrompt = config.personaPrompt + GEMINI_DELIVERY_STYLE +
-                    CONVERSATIONAL_AGENCY + memoryContext + initiativeContext,
+                systemPrompt = config.personaPrompt + KenzaVoiceStyle.forGemini() +
+                    KenzaVoiceStyle.CONVERSATIONAL_AGENCY + memoryContext + initiativeContext,
                 listener = listener,
                 tokenBrokerUrl = config.geminiTokenBrokerUrl,
             )
             ProviderType.ELEVENLABS -> {
                 val (aid, key) = elevenCreds.getOrElse(credIndex) { config.agentId to config.apiKey }
-                val override = if (config.elevenInjectMemory)
-                    config.personaPrompt + CONVERSATIONAL_AGENCY + memoryContext + initiativeContext
-                else null
+                val persona = config.personaPrompt +
+                    KenzaVoiceStyle.forElevenLabs(config.elevenExpressiveTags) + KenzaVoiceStyle.CONVERSATIONAL_AGENCY
+                val override = if (config.elevenInjectMemory) persona + memoryContext + initiativeContext else null
+                val variables = if (config.elevenDynamicVariables) {
+                    sessionOpeningLine = KenzaCallOpening.openingLine(callDirection(), openingHeardThisCall)
+                    KenzaDynamicVariables.build(
+                        KenzaCallInputs(
+                            persona = persona,
+                            continuityBriefing = memoryContext,
+                            callReason = initiativeContext,
+                            direction = callDirection(),
+                            openingLine = sessionOpeningLine,
+                        ),
+                        now = java.time.ZonedDateTime.now(),
+                    )
+                } else emptyMap()
                 ElevenLabsProvider(
                     agentId = aid,
                     apiKey = key,
                     listener = listener,
                     promptOverride = override,
+                    dynamicVariables = variables,
                 )
             }
         }
     }
+
+    private fun callDirection(): CallDirection =
+        if (pendingInitiativeToken != null) CallDirection.KENZA_CALLED else CallDirection.MOHAMED_CALLED
 
     private fun initiativePrompt(now: Long): String {
         val token = pendingInitiativeToken ?: return ""
@@ -320,191 +339,19 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             ?: InitiativeEngine.bestSeed(memory.snapshot(), now)?.cue
             ?: "Choose a natural subject from the private continuity briefing that you genuinely want to discuss."
         return "\n\n=== KENZA INITIATED THIS CALL ===\n" +
-            "This incoming call was your choice. You have a reason or conversational impulse of your own. " +
-            "Speak first when the call connects and lead naturally into the subject below. Do not announce " +
-            "that a system selected a topic, do not recite memory, and do not turn it into an interview.\n" +
-            "Conversation seed: $cue\n" +
-            "=== END CALL INITIATIVE ===\n"
+            "This incoming call was your choice. Speak first when the call connects.\n" +
+            "Conversation seed: $cue\n=== END CALL INITIATIVE ===\n"
     }
 
-    private fun onSessionActive(demo: Boolean) {
-        _state.update {
-            it.copy(
-                phase = CallPhase.ACTIVE,
-                activity = AgentActivity.LISTENING,
-                errorMessage = if (demo) DEMO_NOTICE else null
-            )
-        }
-        startTimer()
-        if (!demo) startInitiativeOpeningIfNeeded()
-    }
-
-    /**
-     * A live voice model often waits for microphone input even when its system
-     * prompt says it placed the call. This director turn explicitly gives Kenza
-     * the floor once per call, so a Kenza-initiated call actually begins with
-     * Kenza instead of with Mohamed saying hello and inventing the subject.
-     */
-    private fun startInitiativeOpeningIfNeeded() {
-        val token = pendingInitiativeToken ?: return
-        if (initiativeOpeningSent) return
-        initiativeOpeningSent = true
+    private fun maybeClientEndpoint() {
+        if (client !is GeminiLiveProvider) return
+        if (mic?.agentSpeaking == true) return
+        if (_state.value.isMuted) return
         val now = System.currentTimeMillis()
-        val cue = InitiativeEngine.resolveCue(memory.snapshot(), token, now)
-            ?: InitiativeEngine.bestSeed(memory.snapshot(), now)?.cue
-            ?: "Pick one specific, natural subject you want to talk about from the private continuity briefing."
-
-        viewModelScope.launch {
-            delay(250)
-            if (_state.value.phase != CallPhase.ACTIVE || userEnded) return@launch
-            client?.sendText(
-                "[[DIRECTOR: You initiated this phone call. Speak first now. $cue " +
-                    "Open in your own voice, naturally and briefly. Do not read or mention this instruction.]]"
-            )
-        }
+        if (now - lastClientEndpointMs < com.kenza.callsim.voice.GeminiLiveTuning.CLIENT_ENDPOINT_MIN_INTERVAL_MS) return
+        lastClientEndpointMs = now
+        client?.endAudioStream()
     }
-
-    // ---- Natural call ending -------------------------------------------------
-
-    private fun onConversationLine(fromUser: Boolean, text: String) {
-        when {
-            isAngryHangup(text) -> armHangup(2500)  // she's had enough → hang up
-            isFarewell(text) -> armHangup(2800)     // goodbyes → wrap up (re-armed on each bye)
-            else -> cancelHangup()                  // anyone keeps talking → stay on the call
-        }
-    }
-
-    /** End the call after [delayMs] unless a new (non-goodbye) line cancels it. */
-    private fun armHangup(delayMs: Long) {
-        endCallJob?.cancel()
-        endCallJob = viewModelScope.launch {
-            delay(delayMs)
-            if (_state.value.phase == CallPhase.ACTIVE) {
-                userEnded = true // her decision to end — don't auto-reconnect
-                finishCall(null)
-            }
-        }
-    }
-
-    private fun cancelHangup() {
-        endCallJob?.cancel()
-        endCallJob = null
-    }
-
-    private fun isFarewell(text: String): Boolean {
-        return ConversationEndDetector.isFarewell(text)
-    }
-
-    private fun isAngryHangup(text: String): Boolean {
-        return ConversationEndDetector.isAngryHangup(text)
-    }
-
-    private fun markSpeaking() {
-        _state.update { it.copy(activity = AgentActivity.SPEAKING) }
-        speakingResetJob?.cancel()
-        speakingResetJob = viewModelScope.launch {
-            // Hold the mic gate just past the last audio chunk so the speaker
-            // tail doesn't bleed in, then reopen it for the user's turn. Kept
-            // short so the user can reply quickly (AEC covers residual echo).
-            delay(350)
-            mic?.agentSpeaking = false
-            _state.update {
-                if (it.phase == CallPhase.ACTIVE) it.copy(activity = AgentActivity.LISTENING) else it
-            }
-        }
-    }
-
-    /**
-     * Called when the voice session drops. If the user is still on the call and
-     * the failure isn't fatal, transparently reconnect so a server-side
-     * conversation-duration limit (or a network blip) doesn't end the call.
-     */
-    private fun handleDisconnect(message: String, fatal: Boolean) {
-        viewModelScope.launch {
-            if (userEnded) return@launch
-            val phase = _state.value.phase
-            val onCall = phase == CallPhase.ACTIVE || phase == CallPhase.CONNECTING
-
-            // Failover: the current ElevenLabs account is out of credit but we
-            // have another key queued — rotate to it and reconnect without
-            // ending the call. (Server state can't carry over, but the call
-            // continues on the next account within ~1s.)
-            if (onCall && isQuotaExhausted(message) && credIndex < elevenCreds.lastIndex) {
-                credIndex++
-                reconnectAttempts = 0
-                stopVoiceSession()
-                _state.update {
-                    it.copy(phase = CallPhase.CONNECTING, micStreaming = false,
-                        activity = AgentActivity.THINKING)
-                }
-                delay(500)
-                if (!userEnded) startVoiceSession()
-                return@launch
-            }
-
-            // Only a session with real two-way interaction refreshes the retry
-            // budget. This lets a genuine long call reconnect indefinitely past a
-            // server duration limit, while a quota/greeting replay loop (user
-            // never gets to speak) exhausts the budget and stops.
-            if (hadUserInteraction) {
-                reconnectAttempts = 0
-                hadUserInteraction = false
-            }
-
-            if (onCall && !fatal && reconnectAttempts < maxConsecutiveReconnects) {
-                reconnectAttempts++
-                stopVoiceSession()
-                _state.update {
-                    it.copy(phase = CallPhase.CONNECTING, micStreaming = false, activity = AgentActivity.THINKING)
-                }
-                delay(700)
-                if (!userEnded) startVoiceSession()
-            } else {
-                _state.update { it.copy(errorMessage = friendlyError(message, fatal)) }
-                finishCall(null)
-            }
-        }
-    }
-
-    /**
-     * True only for a genuine credit/quota exhaustion — NOT for generic policy
-     * closes (WebSocket 1008), rate/concurrency limits, or override rejections.
-     * Misclassifying those as quota made a single failure stampede through every
-     * backup key and falsely report "out of credit."
-     */
-    private fun isQuotaExhausted(message: String): Boolean {
-        val m = message.lowercase()
-        return m.contains("quota") || m.contains("credit") ||
-            m.contains("insufficient") || m.contains("resource_exhausted")
-    }
-
-    /** ElevenLabs blocks free-tier TTS across accounts it thinks are the same person. */
-    private fun isFreeTierBlocked(message: String): Boolean {
-        val m = message.lowercase()
-        return m.contains("unusual activity") || m.contains("free tier") ||
-            m.contains("free_tier") || m.contains("abuse")
-    }
-
-    private fun friendlyError(message: String, fatal: Boolean): String = when {
-        isFreeTierBlocked(message) ->
-            "ElevenLabs blocked free-tier voice on this account (it flags multiple free " +
-                "accounts as \"unusual activity\"). Use the Gemini voice, or a paid ElevenLabs " +
-                "plan.\n($message)"
-        isQuotaExhausted(message) && elevenCreds.size > 1 ->
-            "All ${elevenCreds.size} ElevenLabs keys reported out of credit. If an account still " +
-                "shows credit, the real reason is above.\n($message)"
-        isQuotaExhausted(message) ->
-            "Out of ElevenLabs credit. Add a backup key in Settings, or top up.\n($message)"
-        message.contains("override", true) ->
-            "ElevenLabs rejected the persona/memory override. Enable Security → Overrides → " +
-                "System prompt on your agent, or turn that toggle off in Settings.\n($message)"
-        message.contains("API key", true) || message.contains("Agent ID", true) ||
-            message.contains("401") || message.contains("403") || message.contains("UNAUTHENTICATED", true) ->
-            "Authentication failed. Check your key/ID in Settings.\n($message)"
-        else -> message
-    }
-
-    // ---- In-call controls ----------------------------------------------------
 
     fun toggleMute() {
         val muted = !_state.value.isMuted
@@ -521,99 +368,111 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(isSpeakerOn = on) }
     }
 
-    fun toggleKeypad() = _state.update { it.copy(isKeypadVisible = !it.isKeypadVisible) }
-
-    fun pressKeypadKey(key: Char) = dtmf.play(key)
-
-    // ---- Home dialer ---------------------------------------------------------
-
-    fun appendDigit(d: Char) {
-        dtmf.play(d)
-        _state.update { it.copy(dialedNumber = (it.dialedNumber + d).take(20)) }
+    fun toggleKeypad() {
+        _state.update { it.copy(isKeypadVisible = !it.isKeypadVisible) }
     }
 
-    fun deleteDigit() = _state.update {
-        if (it.dialedNumber.isEmpty()) it else it.copy(dialedNumber = it.dialedNumber.dropLast(1))
+    fun pressKeypadKey(key: Char) {
+        dtmf.play(key)
+        appendDigit(key)
     }
 
-    // ---- End / cleanup -------------------------------------------------------
+    fun appendDigit(digit: Char) {
+        _state.update { it.copy(dialedNumber = (it.dialedNumber + digit).take(32)) }
+    }
 
-    /** User hung up — stop for good (no auto-reconnect). */
+    fun deleteDigit() {
+        _state.update {
+            if (it.dialedNumber.isEmpty()) it
+            else it.copy(dialedNumber = it.dialedNumber.dropLast(1))
+        }
+    }
+
     fun endCall() {
         userEnded = true
-        finishCall(null)
+        hangUpInternal()
     }
 
-    private fun finishCall(error: String?) {
-        pendingStartAfterPermission = false
-        dialingJob?.cancel(); dialingJob = null
-        persistMemory()
-        stopVoiceSession()
-        ringtone.stop()
+    private fun hangUpInternal() {
+        dialingJob?.cancel()
         timerJob?.cancel()
-        pendingInitiativeToken = null
-        initiativeOpeningSent = false
+        speakingResetJob?.cancel()
+        silenceRepairJob?.cancel()
+        endCallJob?.cancel()
+        mic?.stop(); mic = null
+        player?.stop(); player = null
+        client?.stop(); client = null
+        speechEnergy.reset()
         _state.update {
             it.copy(
                 phase = CallPhase.ENDED,
-                errorMessage = error ?: it.errorMessage,
+                activity = AgentActivity.IDLE,
                 isMuted = false,
-                isSpeakerOn = false,
-                isKeypadVisible = false,
                 micStreaming = false,
-                activity = AgentActivity.IDLE
+                isKeypadVisible = false,
             )
         }
-        returnHomeSoon()
     }
 
-    private fun returnHomeSoon() {
-        viewModelScope.launch {
-            delay(1200)
-            _state.update {
-                if (it.phase == CallPhase.ENDED)
-                    it.copy(phase = CallPhase.IDLE, callDurationSec = 0, lastAgentText = "", lastUserText = "")
-                else it
+    private fun finishCall(message: String) {
+        hangUpInternal()
+        _state.update { it.copy(errorMessage = message) }
+    }
+
+    private fun handleDisconnect(message: String, fatal: Boolean) {
+        if (userEnded) return
+        if (!fatal && hadUserInteraction && reconnectAttempts < maxConsecutiveReconnects) {
+            reconnectAttempts += 1
+            startVoiceSession()
+            return
+        }
+        finishCall(message)
+    }
+
+    private fun onSessionActive(demo: Boolean) {
+        _state.update {
+            it.copy(
+                phase = CallPhase.ACTIVE,
+                activity = if (demo) AgentActivity.IDLE else AgentActivity.LISTENING,
+                callDurationSec = 0,
+                errorMessage = if (demo) DEMO_NOTICE else null,
+            )
+        }
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                _state.update { s ->
+                    if (s.phase != CallPhase.ACTIVE) return@update s
+                    s.copy(callDurationSec = s.callDurationSec + 1)
+                }
             }
         }
     }
 
-    /**
-     * On call end: log the call (for habit awareness) and, if there was a real
-     * exchange, distill the transcript into durable memories via Gemini.
-     */
-    private fun persistMemory() {
-        val startedAt = callStartedAt
-        callStartedAt = 0L
-        if (startedAt == 0L) return
-
-        // A manual hang-up can happen before the provider emits turn-complete.
-        // Preserve any text already delivered to the UI instead of silently
-        // dropping the final partial turn from post-call memory extraction.
-        transcript += transcriptAssembler.commit()
-        val realExchange = transcript.count { it.first == "user" } >= 1 && transcript.size >= 2
-        if (realExchange) {
-            memory.recordCall(startedAt)
-            MemoryExtractor.extract(
-                getApplication(), config.geminiApiKey, config.contactName,
-                transcript.toList(), memory
-            )
+    private fun markSpeaking() {
+        _state.update { it.copy(activity = AgentActivity.SPEAKING) }
+        speakingResetJob?.cancel()
+        speakingResetJob = viewModelScope.launch {
+            delay(400)
+            mic?.agentSpeaking = false
+            if (_state.value.activity == AgentActivity.SPEAKING) {
+                _state.update { it.copy(activity = AgentActivity.LISTENING) }
+            }
         }
-        transcript.clear()
-        transcriptAssembler.clear()
     }
 
-    private fun stopVoiceSession() {
-        endCallJob?.cancel(); endCallJob = null
-        mic?.stop(); mic = null
-        client?.stop(); client = null
-        player?.stop(); player = null
-        restoreAudioRouting()
+    private fun onConversationLine(fromUser: Boolean, text: String, repair: Any? = null) {}
+    private fun dispatchConversationRepair(repair: Any) {}
+    private fun armSilenceRepairCheck() {}
+
+    private fun configureAudioRouting() {
+        @Suppress("DEPRECATION")
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        AudioRoutePolicy.earpieceFullDuplexEnabled = config.earpieceFullDuplex
     }
 
-    // ---- Settings / consent --------------------------------------------------
-
-    fun currentSettings() = SettingsData(
+    fun currentSettings(): SettingsData = SettingsData(
         provider = config.provider,
         geminiApiKey = config.geminiApiKey,
         geminiVoice = config.geminiVoice,
@@ -622,114 +481,47 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         elevenApiKey = config.apiKey,
         elevenBackups = config.elevenBackups,
         elevenInjectMemory = config.elevenInjectMemory,
+        elevenDynamicVariables = config.elevenDynamicVariables,
+        elevenExpressiveTags = config.elevenExpressiveTags,
         contactName = config.contactName,
         persona = config.personaPrompt,
+        weatherApiKey = config.weatherApiKey,
+        userCity = config.userCity,
+        earpieceFullDuplex = config.earpieceFullDuplex,
     )
 
-    fun saveSettings(s: SettingsData) {
-        config.provider = s.provider
-        config.geminiApiKey = s.geminiApiKey
-        config.geminiVoice = s.geminiVoice
-        config.geminiModel = s.geminiModel
-        config.agentId = s.agentId
-        config.apiKey = s.elevenApiKey
-        config.elevenBackups = s.elevenBackups
-        config.elevenInjectMemory = s.elevenInjectMemory
-        config.contactName = s.contactName
-        config.personaPrompt = s.persona
+    fun saveSettings(data: SettingsData) {
+        config.provider = data.provider
+        config.geminiApiKey = data.geminiApiKey
+        config.geminiVoice = data.geminiVoice
+        config.geminiModel = data.geminiModel
+        config.agentId = data.agentId
+        config.apiKey = data.elevenApiKey
+        config.elevenBackups = data.elevenBackups
+        config.elevenInjectMemory = data.elevenInjectMemory
+        config.elevenDynamicVariables = data.elevenDynamicVariables
+        config.elevenExpressiveTags = data.elevenExpressiveTags
+        config.contactName = data.contactName
+        config.personaPrompt = data.persona
+        config.weatherApiKey = data.weatherApiKey
+        config.userCity = data.userCity
+        config.earpieceFullDuplex = data.earpieceFullDuplex
+        AudioRoutePolicy.earpieceFullDuplexEnabled = data.earpieceFullDuplex
         _state.update {
-            it.copy(contactName = config.contactName, isConfigured = config.isConfigured)
+            it.copy(contactName = data.contactName, isConfigured = config.isConfigured)
         }
     }
 
     fun voiceId(): String = config.voiceId
-
-    fun clearError() = _state.update { it.copy(errorMessage = null) }
-
     fun isConsentAccepted(): Boolean = config.consentAccepted
     fun acceptConsent() { config.consentAccepted = true }
-
-    private fun startTimer() {
-        timerJob?.cancel()
-        timerJob = viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                _state.update {
-                    if (it.phase == CallPhase.ACTIVE) it.copy(callDurationSec = it.callDurationSec + 1) else it
-                }
-            }
-        }
-    }
-
-    private fun configureAudioRouting() {
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        @Suppress("DEPRECATION")
-        audioManager.isSpeakerphoneOn = _state.value.isSpeakerOn
-    }
-
-    private fun restoreAudioRouting() {
-        runCatching {
-            audioManager.mode = AudioManager.MODE_NORMAL
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = false
-        }
-    }
-
-    fun tearDown() {
-        pendingStartAfterPermission = false
-        dialingJob?.cancel(); dialingJob = null
-        stopVoiceSession()
-        ringtone.stop()
-        dtmf.release()
-        timerJob?.cancel()
-    }
-
-    /** ViewModels survive configuration changes, so only release call resources when truly cleared. */
-    override fun onCleared() {
-        tearDown()
-        super.onCleared()
-    }
+    fun clearError() { _state.update { it.copy(errorMessage = null) } }
 
     companion object {
-        const val NEED_MIC = "__need_mic__"
+        const val NEED_MIC = "NEED_MIC"
         const val DEMO_NOTICE =
             "Demo mode: the selected voice provider is not configured, so the call screen works " +
                 "without live voice. Open Settings to connect a provider."
-
-        /** Compact Gemini-only behavior block (kept short to minimize first-reply latency). */
-        private const val GEMINI_DELIVERY_STYLE =
-            "\n\nDELIVERY: this is a live phone call. Answer immediately, like a normal person, " +
-            "Greetings and acknowledgements are 2-8 words; simple answers are one short sentence. " +
-            "For emotional moments, react once and ask at most one follow-up. Explain briefly first " +
-            "and add detail only when asked. Stop immediately when interrupted. Use a plain conversational voice: " +
-            "no sing-song, no customer-service cheer, no theatrical emotion, no drawn-out words. " +
-            "Never manufacture fillers, breaths, or background events. " +
-            "Do not start every reply with 'hey' or 'how about you'. If the user says 'hey how " +
-            "are you', a natural reply is 'i'm good baby, what about you' — short and instant.\n" +
-            "PAUSES: brief or extended response pauses are normal in a phone conversation. Never comment on " +
-            "silence, ask whether Mohamed is still there, say he went quiet, or inject a presence check solely " +
-            "because he has not spoken yet. Wait for his response without filling the gap.\n" +
-            "EMOTION: react to the actual sentence with small real cues (soft laugh, teasing, " +
-            "warmth, mild attitude) but do not overact. Match their cadence and energy.\n" +
-            "MEMORY: you keep long-term memory of your calls and are briefed each call, so if they " +
-            "ask you to remember something say yes confidently — never 'no promises' or 'i'll try'.\n" +
-            "ENDING: you may end the call — after goodbyes say a warm 'okay bye babe' and let it go; " +
-            "if they're genuinely cruel, snap back and hang up.\n" +
-            "[[DIRECTOR: ...]] notes are private cues to you, never the other person — act on them, " +
-            "never read them aloud.\n\n"
-
-        private const val CONVERSATIONAL_AGENCY =
-            "\n\nCONVERSATIONAL AGENCY: You are not a passive assistant waiting for Mohamed to supply " +
-            "the purpose, subject, or emotional direction of every interaction. You have your own " +
-            "established personality, curiosities, opinions, callbacks, and conversational impulses. " +
-            "When it feels natural, introduce a subject yourself, revisit something unfinished, ask " +
-            "a question you genuinely care about, offer an observation, tell him a thought, disagree, " +
-            "change the subject, or revive a shared memory. Use the current time, recent mood, relationship " +
-            "history, your profile, his profile, and relevant memories to make those choices. Do not force " +
-            "old memories into unrelated moments and do not interrogate him with endless questions. Let a " +
-            "topic breathe, then move on when it naturally runs out. You may surprise him, have preferences, " +
-            "and decline a conversational direction when that fits your personality. Never explain the " +
-            "scoring, memory database, director system, or why a topic was selected. Avoid defaulting to " +
-            "generic openers like 'what are you doing?' when a more specific thought exists.\n\n"
+        private const val ELEVEN_OPENING_FALLBACK_MS = 1_500L
     }
 }

@@ -47,6 +47,9 @@ import com.kenza.callsim.memory.MemoryOwner
 import com.kenza.callsim.memory.MemoryPolicy
 import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.memory.PersonalityProfiles
+import com.kenza.callsim.ui.components.IosFooterNote
+import com.kenza.callsim.ui.components.IosNavHeader
+import com.kenza.callsim.ui.components.IosSectionCaption
 import com.kenza.callsim.ui.theme.IOSColors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,7 +57,7 @@ import java.util.Locale
 
 /** Reviewable and editable private memory, stored encrypted on this device. */
 @Composable
-fun MemoryScreen(onBack: () -> Unit) {
+fun MemoryScreen(onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val store = remember { MemoryStore(context) }
     var refreshKey by remember { mutableIntStateOf(0) }
@@ -70,41 +73,25 @@ fun MemoryScreen(onBack: () -> Unit) {
     var newOwner by remember { mutableStateOf(MemoryOwner.USER) }
     var newKind by remember { mutableStateOf(MemoryKind.FACT) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var correctingMemory by remember { mutableStateOf<MemoryItem?>(null) }
+    var correctionText by remember { mutableStateOf("") }
 
     fun refresh() { refreshKey++ }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(IOSColors.GroupedBackground)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
         Spacer(Modifier.height(48.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = IOSColors.Blue,
-                modifier = Modifier.size(28.dp).clickable(onClick = onBack)
-            )
-            Spacer(Modifier.size(12.dp))
-            Column {
-                Text("Kenza Memory", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Encrypted on this device. Raw call transcripts are not kept.",
-                    color = IOSColors.SecondaryLabel,
-                    fontSize = 12.sp,
-                )
-            }
-        }
+        IosNavHeader(title = "Memory", onBack = onBack)
+        IosFooterNote("Encrypted on this device. Raw call transcripts are not kept.")
 
-        Spacer(Modifier.height(24.dp))
-        SectionTitle("Personality and relationship profiles")
-        Text(
+        IosSectionCaption("Personality and relationship")
+        IosFooterNote(
             "These stable profiles are loaded automatically before every outgoing, incoming, or scheduled call.",
-            color = IOSColors.SecondaryLabel,
-            fontSize = 13.sp,
         )
         ProfileField("About Kenza", kenzaProfile, { kenzaProfile = it }, "Personality, background, habits, communication style")
         ProfileField("About Mohamed", listenerProfile, { listenerProfile = it }, "Work, interests, preferences, current priorities")
@@ -131,7 +118,7 @@ fun MemoryScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(30.dp))
-        SectionTitle("Add an important memory")
+        IosSectionCaption("Add an important memory")
         OutlinedTextField(
             value = newMemory,
             onValueChange = { newMemory = it },
@@ -182,21 +169,30 @@ fun MemoryScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(30.dp))
-        SectionTitle("Recent calls")
+        IosSectionCaption("Recent calls")
         if (snapshot.calls.isEmpty()) {
             EmptyText("Call summaries will appear here after a real two-way call ends.")
         } else {
             snapshot.calls.sortedByDescending { it.startedAt }.take(12).forEach { call ->
-                CallSummaryCard(call = call, onDelete = {
-                    store.deleteCall(call.id)
-                    refresh()
-                })
+                CallSummaryCard(
+                    call = call,
+                    onDelete = {
+                        store.deleteCall(call.id)
+                        refresh()
+                    },
+                    onApproveCandidate = { candidate ->
+                        if (store.approveCandidateMemory(call.id, candidate.id)) refresh()
+                    },
+                    onRejectCandidate = { candidate ->
+                        if (store.rejectCandidateMemory(call.id, candidate.id)) refresh()
+                    },
+                )
                 Spacer(Modifier.height(10.dp))
             }
         }
 
         Spacer(Modifier.height(24.dp))
-        SectionTitle("Durable memories")
+        IosSectionCaption("Durable memories")
         val sortedMemories = snapshot.items.sortedByDescending {
             MemoryPolicy.score(it, System.currentTimeMillis())
         }
@@ -206,6 +202,10 @@ fun MemoryScreen(onBack: () -> Unit) {
             sortedMemories.forEach { item ->
                 MemoryCard(
                     item = item,
+                    onCorrect = {
+                        correctingMemory = item
+                        correctionText = item.text
+                    },
                     onPin = { store.togglePinned(item.id); refresh() },
                     onDone = { store.toggleDone(item.id); refresh() },
                     onDelete = { store.deleteMemory(item.id); refresh() },
@@ -215,11 +215,45 @@ fun MemoryScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(28.dp))
-        HorizontalDivider(color = Color(0xFF2C2C2E))
+        HorizontalDivider(color = IOSColors.Separator)
         TextButton(onClick = { showClearConfirm = true }, modifier = Modifier.fillMaxWidth()) {
             Text("Delete all Kenza memory", color = IOSColors.Red)
         }
         Spacer(Modifier.height(40.dp))
+    }
+
+    correctingMemory?.let { item ->
+        AlertDialog(
+            onDismissRequest = { correctingMemory = null },
+            title = { Text("Correct memory") },
+            text = {
+                Column {
+                    Text(
+                        "Replace the stored fact. The old wording is removed, not kept as a competing memory.",
+                        fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = correctionText,
+                        onValueChange = { correctionText = it },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { correctingMemory = null }) { Text("Cancel") }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = correctionText.isNotBlank(),
+                    onClick = {
+                        if (store.correctMemory(item.id, correctionText)) refresh()
+                        correctingMemory = null
+                    },
+                ) { Text("Save correction", color = IOSColors.Blue) }
+            },
+        )
     }
 
     if (showClearConfirm) {
@@ -247,8 +281,13 @@ fun MemoryScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
-    Surface(color = Color(0xFF1C1C1E), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+private fun CallSummaryCard(
+    call: CallSummary,
+    onDelete: () -> Unit,
+    onApproveCandidate: (MemoryItem) -> Unit,
+    onRejectCandidate: (MemoryItem) -> Unit,
+) {
+    Surface(color = IOSColors.SecondaryBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -276,6 +315,34 @@ private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Text("Next call: $it", color = IOSColors.Green, fontSize = 12.sp)
             }
+            if (call.candidateMemories.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = IOSColors.Separator)
+                Spacer(Modifier.height(10.dp))
+                Text("Review memory suggestions", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Nothing below becomes durable memory until you choose Remember.",
+                    color = IOSColors.SecondaryLabel,
+                    fontSize = 11.sp,
+                )
+                call.candidateMemories.forEach { candidate ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "${ownerLabel(candidate.owner)} • ${candidate.kind.name.lowercase()} • ${(candidate.confidence * 100).toInt()}%",
+                        color = IOSColors.SecondaryLabel,
+                        fontSize = 10.sp,
+                    )
+                    Text(candidate.text, color = Color.White, fontSize = 13.sp, lineHeight = 18.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { onRejectCandidate(candidate) }) {
+                            Text("Dismiss", color = IOSColors.Red, fontSize = 12.sp)
+                        }
+                        TextButton(onClick = { onApproveCandidate(candidate) }) {
+                            Text("Remember", color = IOSColors.Green, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
             call.processingError?.let {
                 Spacer(Modifier.height(6.dp))
                 Text("Automatic analysis was limited: $it", color = IOSColors.SecondaryLabel, fontSize = 11.sp)
@@ -287,11 +354,12 @@ private fun CallSummaryCard(call: CallSummary, onDelete: () -> Unit) {
 @Composable
 private fun MemoryCard(
     item: MemoryItem,
+    onCorrect: () -> Unit,
     onPin: () -> Unit,
     onDone: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Surface(color = Color(0xFF1C1C1E), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = IOSColors.SecondaryBackground, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -318,6 +386,7 @@ private fun MemoryCard(
                 fontSize = 11.sp,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onCorrect) { Text("Correct", color = IOSColors.Blue) }
                 TextButton(onClick = onPin) { Text(if (item.pinned) "Unpin" else "Pin", color = IOSColors.Blue) }
                 if (item.kind == MemoryKind.PLAN || item.kind == MemoryKind.GOAL) {
                     TextButton(onClick = onDone) { Text(if (item.done) "Reopen" else "Done", color = IOSColors.Green) }
@@ -349,7 +418,7 @@ private fun ProfileField(label: String, value: String, onChange: (String) -> Uni
 @Composable
 private fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     Surface(
-        color = if (selected) IOSColors.Green else Color(0xFF1C1C1E),
+        color = if (selected) IOSColors.Green else IOSColors.SecondaryBackground,
         shape = RoundedCornerShape(11.dp),
         modifier = modifier.clickable(onClick = onClick),
     ) {
@@ -364,11 +433,6 @@ private fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier, onC
     }
 }
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(8.dp))
-}
 
 @Composable
 private fun EmptyText(text: String) {

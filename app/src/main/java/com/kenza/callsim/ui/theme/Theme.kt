@@ -18,12 +18,18 @@ object IOSColors {
     val CallScreenTop = Color(0xFF1C1C1E)
     val CallScreenBottom = Color(0xFF000000)
     val Blue = Color(0xFF0A84FF)
+    val GroupedBackground = Color(0xFF000000)
+    val SecondaryBackground = Color(0xFF1C1C1E)
+    val TertiaryBackground = Color(0xFF2C2C2E)
+    val Separator = Color(0xFF38383A)
+    val TertiaryLabel = Color(0x99FFFFFF)
+    val KeypadBackground = Color(0xFF2C2C2E)
 }
 
 private val DarkColors = darkColorScheme(
     primary = IOSColors.Green,
-    background = Color.Black,
-    surface = Color.Black,
+    background = IOSColors.GroupedBackground,
+    surface = IOSColors.SecondaryBackground,
     onPrimary = Color.White,
     onBackground = Color.White,
     onSurface = Color.White,

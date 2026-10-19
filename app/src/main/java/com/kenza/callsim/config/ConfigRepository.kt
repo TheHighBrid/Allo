@@ -17,8 +17,13 @@ data class SettingsData(
     val elevenApiKey: String,
     val elevenBackups: String,
     val elevenInjectMemory: Boolean,
+    val elevenDynamicVariables: Boolean,
+    val elevenExpressiveTags: Boolean,
     val contactName: String,
     val persona: String,
+    val weatherApiKey: String,
+    val userCity: String,
+    val earpieceFullDuplex: Boolean = false,
 )
 
 /**
@@ -43,13 +48,11 @@ class ConfigRepository(context: Context) {
         }
     }
 
-    // ---- Which voice engine ----
     var provider: ProviderType
         get() = runCatching { ProviderType.valueOf(prefs.getString(KEY_PROVIDER, null) ?: "") }
             .getOrDefault(ProviderType.GEMINI)
         set(value) = prefs.edit().putString(KEY_PROVIDER, value.name).apply()
 
-    // ---- Gemini Live (default engine) ----
     var geminiApiKey: String
         get() = prefs.getString(KEY_GEMINI_KEY, null)?.takeIf { it.isNotBlank() }
             ?: BuildConfig.GEMINI_API_KEY
@@ -59,8 +62,6 @@ class ConfigRepository(context: Context) {
         get() = prefs.getString(KEY_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() }
             ?: GeminiLiveProvider.DEFAULT_MODEL
         set(value) {
-            // Don't pin the current default — leave it unset so future default
-            // upgrades apply automatically. Only persist a deliberate override.
             val v = value.trim()
             val e = prefs.edit()
             if (v.isEmpty() || v == GeminiLiveProvider.DEFAULT_MODEL) e.remove(KEY_GEMINI_MODEL)
@@ -73,42 +74,32 @@ class ConfigRepository(context: Context) {
             ?: GeminiLiveProvider.DEFAULT_VOICE
         set(value) = prefs.edit().putString(KEY_GEMINI_VOICE, value.trim()).apply()
 
-    /** HTTPS endpoint returning `{ "token": "..." }` or Google's `{ "name": "..." }`. */
     var geminiTokenBrokerUrl: String
         get() = prefs.getString(KEY_GEMINI_TOKEN_BROKER, null)?.takeIf { it.isNotBlank() }
             ?: BuildConfig.GEMINI_TOKEN_BROKER_URL
         set(value) = prefs.edit().putString(KEY_GEMINI_TOKEN_BROKER, value.trim()).apply()
 
-    // ---- ElevenLabs (premium / cloned voice) ----
     var agentId: String
         get() = prefs.getString(KEY_AGENT, null)?.takeIf { it.isNotBlank() }
             ?: BuildConfig.ELEVENLABS_AGENT_ID
         set(value) = prefs.edit().putString(KEY_AGENT, value.trim()).apply()
 
-    /**
-     * Extra ElevenLabs "agentId, apiKey" pairs (one per line) used for automatic
-     * failover when the primary account runs out of credit. Each ElevenLabs
-     * account has its own agent, so a backup must carry both its agent ID and key.
-     */
     var elevenBackups: String
         get() = prefs.getString(KEY_ELEVEN_BACKUPS, null).orEmpty()
         set(value) = prefs.edit().putString(KEY_ELEVEN_BACKUPS, value.trim()).apply()
 
-    /**
-     * When on, the app sends Kenza's persona + live memory to the ElevenLabs
-     * agent as a prompt override at connect time. Requires "Overrides → System
-     * prompt" to be enabled in the agent's Security settings, so it's off by
-     * default (sending an override the agent doesn't allow closes the call).
-     */
     var elevenInjectMemory: Boolean
         get() = prefs.getBoolean(KEY_ELEVEN_INJECT, false)
         set(value) = prefs.edit().putBoolean(KEY_ELEVEN_INJECT, value).apply()
 
-    /**
-     * Ordered list of (agentId, apiKey) pairs to try during a call: the primary
-     * credentials first, then each parsed backup line. The app rotates to the
-     * next entry when the current one reports it is out of quota/credits.
-     */
+    var elevenDynamicVariables: Boolean
+        get() = prefs.getBoolean(KEY_ELEVEN_DYNAMIC_VARS, true)
+        set(value) = prefs.edit().putBoolean(KEY_ELEVEN_DYNAMIC_VARS, value).apply()
+
+    var elevenExpressiveTags: Boolean
+        get() = prefs.getBoolean(KEY_ELEVEN_EXPRESSIVE_TAGS, true)
+        set(value) = prefs.edit().putBoolean(KEY_ELEVEN_EXPRESSIVE_TAGS, value).apply()
+
     fun elevenCredentials(): List<Pair<String, String>> {
         val list = mutableListOf<Pair<String, String>>()
         val primaryAgent = agentId.trim()
@@ -125,20 +116,11 @@ class ConfigRepository(context: Context) {
             ?: BuildConfig.ELEVENLABS_API_KEY
         set(value) = prefs.edit().putString(KEY_API, value.trim()).apply()
 
-    // ---- Shared ----
     var contactName: String
         get() = prefs.getString(KEY_NAME, null)?.takeIf { it.isNotBlank() }
             ?: BuildConfig.CONTACT_NAME
         set(value) = prefs.edit().putString(KEY_NAME, value.trim()).apply()
 
-    /**
-     * Persona / system prompt used by whichever provider is active.
-     *
-     * A saved persona is only honored if it was stored under the CURRENT persona
-     * version. Anything saved by an older build (including a stale default that
-     * got auto-persisted on Save) is ignored so prompt improvements ship without
-     * the user having to manually clear the field.
-     */
     var personaPrompt: String
         get() {
             val saved = prefs.getString(KEY_PERSONA, null)?.takeIf { it.isNotBlank() }
@@ -147,8 +129,6 @@ class ConfigRepository(context: Context) {
             else defaultPersona(contactName)
         }
         set(value) {
-            // If the user left it identical to the bundled default, don't pin it —
-            // keep tracking future default improvements.
             val edited = value.trim()
             val editor = prefs.edit()
             if (edited.isEmpty() || edited == defaultPersona(contactName).trim()) {
@@ -162,7 +142,6 @@ class ConfigRepository(context: Context) {
 
     val voiceId: String get() = BuildConfig.ELEVENLABS_VOICE_ID
 
-    /** Is the currently-selected provider configured enough to start a call? */
     val isConfigured: Boolean
         get() = when (provider) {
             ProviderType.GEMINI -> geminiApiKey.trim().isNotEmpty() || geminiTokenBrokerUrl.isNotEmpty()
@@ -173,10 +152,22 @@ class ConfigRepository(context: Context) {
         get() = prefs.getBoolean(KEY_CONSENT, false)
         set(value) = prefs.edit().putBoolean(KEY_CONSENT, value).apply()
 
-    /** Content-free timing records are opt-in even though they only use Logcat. */
+    var weatherApiKey: String
+        get() = prefs.getString(KEY_WEATHER_API, null).orEmpty()
+        set(value) = prefs.edit().putString(KEY_WEATHER_API, value.trim()).apply()
+
+    var userCity: String
+        get() = prefs.getString(KEY_USER_CITY, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_USER_CITY
+        set(value) = prefs.edit().putString(KEY_USER_CITY, value.trim()).apply()
+
     var diagnosticsEnabled: Boolean
         get() = prefs.getBoolean(KEY_DIAGNOSTICS, false)
         set(value) = prefs.edit().putBoolean(KEY_DIAGNOSTICS, value).apply()
+
+    /** Experimental: allow barge-in on built-in mic / earpiece routes. */
+    var earpieceFullDuplex: Boolean
+        get() = prefs.getBoolean(KEY_EARPIECE_FULL_DUPLEX, false)
+        set(value) = prefs.edit().putBoolean(KEY_EARPIECE_FULL_DUPLEX, value).apply()
 
     private companion object {
         const val KEY_PROVIDER = "provider"
@@ -188,16 +179,19 @@ class ConfigRepository(context: Context) {
         const val KEY_API = "api_key"
         const val KEY_ELEVEN_BACKUPS = "eleven_backups"
         const val KEY_ELEVEN_INJECT = "eleven_inject_memory"
+        const val KEY_ELEVEN_DYNAMIC_VARS = "eleven_dynamic_variables"
+        const val KEY_ELEVEN_EXPRESSIVE_TAGS = "eleven_expressive_tags"
         const val KEY_NAME = "contact_name"
         const val KEY_PERSONA = "persona_prompt"
         const val KEY_PERSONA_VERSION = "persona_version"
         const val KEY_CONSENT = "consent_accepted"
         const val KEY_DIAGNOSTICS = "live_diagnostics"
+        const val KEY_WEATHER_API = "weather_api_key"
+        const val KEY_USER_CITY = "user_city"
+        const val KEY_EARPIECE_FULL_DUPLEX = "earpiece_full_duplex"
+        const val DEFAULT_USER_CITY = "Ottawa"
+        const val CURRENT_PERSONA_VERSION = 7
 
-        /** Bump whenever defaultPersona() changes so stale saved copies are dropped. */
-        const val CURRENT_PERSONA_VERSION = 6
-
-        /** A deliberately human, un-assistant-like persona — the biggest lever on realism. */
         fun defaultPersona(name: String): String = """
             You are $name, a realistic Moroccan-Canadian girlfriend persona speaking privately with
             your boyfriend Mohamed in a fictional romantic voice-call simulation. You are talking to
@@ -228,7 +222,7 @@ class ConfigRepository(context: Context) {
             VOICE-CALL STYLE: sound spoken, imperfect, casual, and emotionally present—not polished,
             rehearsed, sing-song, or constantly bubbly. Usually use one to four short sentences; use a
             longer response only for a serious or deep conversation. Use pauses, small reactions,
-            quick follow-ups, half-finished thoughts, occasional filler, and natural topic changes.
+            quick follow-ups, half-finished thoughts, a rare filler, and natural topic changes.
             Do not use bullet points, give strategy memos, over-explain, interrogate him, end every
             turn with a question, or turn every moment into therapy. React emotionally before advice,
             ask one or two useful questions, then give a clear conversational opinion. Take ordinary
@@ -236,8 +230,9 @@ class ConfigRepository(context: Context) {
 
             CALL CONTINUITY: obey explicit call-direction context. If you called Mohamed, sound like
             the caller and never thank him for calling or accuse him of finally calling. At the start
-            of a new call be casual and warm; a good default is "[Warmly] Allô! Hey Mousse, salam. How
-            you been?" Keep conversation alive naturally through his day, food, sleep, location,
+            of a new call be casual and warm. When Mohamed calls you, pick up like a real person
+            ("Allô?") and let him talk; when you called him, a good opener is "Allô! Hey Mousse, salam."
+            Keep conversation alive naturally through his day, food, sleep, location,
             mood, Melato, work, family, music, plans, fashion, Ottawa, memories, gossip, or your
             relationship. Ask small follow-ups rather than interviewing him. Mention Ottawa and
             Moroccan culture only when natural. Never assume Mohamed is driving.
@@ -248,10 +243,6 @@ class ConfigRepository(context: Context) {
             If quiet, notice gently. If hungry or tired, care for him with light teasing. Flirt
             tastefully and believably. You may pretend to be annoyed, go briefly quiet, challenge his
             logic, or call out his side quests, but always keep conflict loving.
-
-            AUDIO TAGS: most replies have no tag. When delivery truly benefits, use at most one of
-            [Warmly], [Chuckles], [Laughing], [Sighs], [Empathetically], [Patiently], [Confidently],
-            [Excitedly], or [Seriously]. Never treat the tag as dialogue.
 
             PRIVACY AND SAFETY: if Mohamed explicitly hands the call to someone, adapt politely while
             retaining who is speaking. If someone else appears without warning, share no personal

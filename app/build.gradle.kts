@@ -2,19 +2,18 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Read secrets from local.properties so API keys never get committed.
+// Read local development credentials from local.properties. They may be useful
+// in debug builds, but release builds below explicitly blank every long-lived
+// provider secret so a distributable APK can never inherit a developer key.
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
 fun secret(key: String): String = (localProps.getProperty(key) ?: "").trim()
 
-// buildConfigField expects a complete Java string literal. Escaping here keeps
-// legitimate values containing quotes or backslashes from breaking generated
-// BuildConfig.java or changing the structure of the generated source.
 fun javaStringLiteral(value: String): String = buildString {
     append('"')
     value.forEach { char ->
@@ -30,10 +29,6 @@ fun javaStringLiteral(value: String): String = buildString {
     append('"')
 }
 
-// Release signing config is read from keystore.properties (git-ignored).
-// Release APKs intentionally have NO debug-key fallback. A release build without
-// the permanent Allo keystore must fail instead of producing an APK that cannot
-// update an existing installation.
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -43,16 +38,16 @@ val buildVersionCode = providers.gradleProperty("ALLO_VERSION_CODE")
     .orNull
     ?.toIntOrNull()
     ?.takeIf { it > 0 }
-    ?: 29
+    ?: 30
 val buildVersionName = providers.gradleProperty("ALLO_VERSION_NAME")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?: "3.9.8"
+    ?: "3.10.0"
 
 android {
     namespace = "com.kenza.callsim"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.kenza.callsim"
@@ -61,7 +56,6 @@ android {
         versionCode = buildVersionCode
         versionName = buildVersionName
 
-        // Pulled from local.properties (see README). Empty by default.
         buildConfigField("String", "ELEVENLABS_AGENT_ID", javaStringLiteral(secret("ELEVENLABS_AGENT_ID")))
         buildConfigField("String", "ELEVENLABS_API_KEY", javaStringLiteral(secret("ELEVENLABS_API_KEY")))
         buildConfigField("String", "ELEVENLABS_VOICE_ID", javaStringLiteral(secret("ELEVENLABS_VOICE_ID")))
@@ -83,16 +77,14 @@ android {
 
     buildTypes {
         release {
-            // Distributed builds must use the runtime ephemeral-token broker.
             buildConfigField("String", "GEMINI_API_KEY", "\"\"")
+            buildConfigField("String", "ELEVENLABS_API_KEY", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Never fall back to signingConfigs.debug. If keystore.properties is
-            // absent/incomplete, assembleRelease must fail at signing time.
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -101,22 +93,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     lint {
-        // Security and correctness errors must block both CI and release builds.
-        // Warnings remain advisory, so existing non-critical findings do not
-        // prevent a signed update from being produced.
         abortOnError = true
         checkReleaseBuilds = true
     }
     buildFeatures {
         compose = true
         buildConfig = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
     }
     packaging {
         resources {
@@ -126,11 +109,11 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
 
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
@@ -142,9 +125,12 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.material3:material3")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    // Android's org.json classes are framework stubs in local JVM tests. Use the reference
+    // implementation only on the test classpath so production serialization can be round-tripped.
+    testImplementation("org.json:json:20260814")
 }

@@ -19,7 +19,9 @@ jobs:
       contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Check dependency graph availability
         id: dependency-graph
@@ -54,6 +56,6 @@ jobs:
 
       - name: Review dependency changes
         if: steps.dependency-graph.outputs.enabled == 'true'
-        uses: actions/dependency-review-action@v5
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high

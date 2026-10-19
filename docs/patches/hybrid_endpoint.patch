@@ -1,0 +1,59 @@
+--- a/app/src/main/java/com/kenza/callsim/call/CallViewModel.kt
++++ b/app/src/main/java/com/kenza/callsim/call/CallViewModel.kt
+@@ -53,7 +53,10 @@
+     private var mic: MicRecorder? = null
+     private var player: PcmPlayer? = null
+     private var telemetry = LiveTurnTelemetry(false)
+-    private val speechEnergy = LocalSpeechEnergyTracker()
++    private val speechEnergy = LocalSpeechEnergyTracker(
++        endHangoverChunks = com.kenza.callsim.voice.GeminiLiveTuning.CLIENT_ENDPOINT_HANGOVER_CHUNKS,
++    )
++    private var lastClientEndpointMs = 0L
+     private val transcriptAssembler = TranscriptAssembler()
+     private val conversationRepair = ConversationRepairEngine()
+ 
+@@ -156,9 +159,9 @@
+         ringtone.stop()
+         _state.update { it.copy(phase = CallPhase.DIALING, errorMessage = null) }
+         dialingJob?.cancel()
++        // Start provider while "calling…" is still shown so handshake latency is hidden.
+         dialingJob = viewModelScope.launch {
+-            delay(1500) // simulated "calling…"
+-            if (_state.value.phase == CallPhase.DIALING) beginConnecting()
++            beginConnecting()
+         }
+     }
+ 
+@@ -256,8 +259,10 @@
+                             when (speechEnergy.onPcm(chunk)) {
+                                 LocalSpeechEnergyTracker.Event.START ->
+                                     telemetry.localSpeechStart()
+-                                LocalSpeechEnergyTracker.Event.END ->
+-                                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
++                                LocalSpeechEnergyTracker.Event.END -> {
++                                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
++                                    maybeClientEndpoint()
++                                }
+                                 null -> Unit
+                             }
+                             client?.sendAudio(chunk)
+@@ -430,6 +435,17 @@
+         }
+     }
+ 
++    private fun maybeClientEndpoint() {
++        if (client !is GeminiLiveProvider) return
++        if (mic?.agentSpeaking == true) return
++        if (_state.value.isMuted) return
++        val now = System.currentTimeMillis()
++        if (now - lastClientEndpointMs < com.kenza.callsim.voice.GeminiLiveTuning.CLIENT_ENDPOINT_MIN_INTERVAL_MS) return
++        lastClientEndpointMs = now
++        client?.endAudioStream()
++    }
++
+     fun toggleMute() {
+         val muted = !_state.value.isMuted
+         if (muted) client?.endAudioStream()
+         mic?.muted = muted
+         _state.update { it.copy(isMuted = muted) }
+     }

@@ -11,13 +11,10 @@ import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
-/**
- * Google Gemini Live API (native audio) provider. One WebSocket handles
- * speech-in, reasoning and speech-out. Microphone audio is sent through
- * realtimeInput so Gemini can process it incrementally with minimal delay.
- */
+/** Google Gemini Live API provider. */
 class GeminiLiveProvider(
     private val apiKey: String,
     private val model: String,
@@ -32,7 +29,8 @@ class GeminiLiveProvider(
         private const val HOST = "generativelanguage.googleapis.com"
         private const val MAX_INTERNAL_RESUMES = 4
         const val OUTPUT_SAMPLE_RATE = 24_000
-        const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
+        /** Consumer AI Studio Live native-audio model (affective dialog, low latency). */
+        const val DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-09-2025"
         const val DEFAULT_VOICE = "Kore"
     }
 
@@ -40,6 +38,8 @@ class GeminiLiveProvider(
         .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
+    private val timing = LiveProviderTiming("gemini")
+    private val lifecycleEpoch = AtomicLong(0L)
 
     private val connectionLock = Any()
     private var nextConnectionId = 0
@@ -51,31 +51,40 @@ class GeminiLiveProvider(
     @Volatile private var goAwayPending = false
     @Volatile private var sessionEphemeralToken: String? = null
     @Volatile private var consecutiveResumeAttempts = 0
-
-    // Current Gemini Live models support compression and resumption. If a custom
-    // older model rejects either setup field, retry once without continuity so
-    // the optional model override does not make the whole call unusable.
     @Volatile private var continuityEnabled = true
     @Volatile private var retriedWithoutContinuity = false
 
     override fun start() {
+        val epoch = lifecycleEpoch.incrementAndGet()
+        timing.connectionStarted()
         closedByUser = false
         if (apiKey.isBlank() && tokenBrokerUrl.isBlank()) {
             listener.onClosed("No Gemini API key set. Open Settings and paste your key.", fatal = true)
             return
         }
-        if (tokenBrokerUrl.isBlank()) connect(resuming = false)
-        else thread(name = "gemini-token") {
+        if (tokenBrokerUrl.isBlank()) {
+            connect(resuming = false, lifecycle = epoch)
+        } else thread(name = "gemini-token") {
             val token = fetchEphemeralToken()
-            if (token == null) listener.onClosed("Ephemeral token broker request failed.", fatal = true)
-            else {
+            if (!isLifecycleActive(epoch)) return@thread
+            if (token == null) {
+                listener.onClosed("Ephemeral token broker request failed.", fatal = true)
+            } else {
                 sessionEphemeralToken = token
-                connect(resuming = false, ephemeralToken = token)
+                connect(resuming = false, ephemeralToken = token, lifecycle = epoch)
             }
         }
     }
 
-    private fun connect(resuming: Boolean, ephemeralToken: String? = sessionEphemeralToken) {
+    private fun isLifecycleActive(epoch: Long): Boolean =
+        !closedByUser && lifecycleEpoch.get() == epoch
+
+    private fun connect(
+        resuming: Boolean,
+        ephemeralToken: String? = sessionEphemeralToken,
+        lifecycle: Long = lifecycleEpoch.get(),
+    ) {
+        if (!isLifecycleActive(lifecycle)) return
         val connectionId = synchronized(connectionLock) {
             nextConnectionId += 1
             activeConnectionId = nextConnectionId
@@ -89,32 +98,39 @@ class GeminiLiveProvider(
         val request = Request.Builder().url(url).build()
         val webSocket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                if (!isCurrent(connectionId)) return
+                if (!isCurrent(connectionId) || !isLifecycleActive(lifecycle)) {
+                    webSocket.close(1000, "stopped")
+                    return
+                }
+                timing.socketConnected()
                 Log.i(TAG, "open; sending setup resuming=$resuming continuity=$continuityEnabled")
                 webSocket.send(buildSetup().toString())
                 if (!resuming) listener.onConnected()
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) = handle(connectionId, text)
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) =
-                handle(connectionId, bytes.utf8())
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (isLifecycleActive(lifecycle)) handle(connectionId, text)
+            }
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (isLifecycleActive(lifecycle)) handle(connectionId, bytes.utf8())
+            }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (!isCurrent(connectionId) || closedByUser) return
+                if (!isCurrent(connectionId) || !isLifecycleActive(lifecycle)) return
                 if (code == 1007 && continuityEnabled && !retriedWithoutContinuity) {
                     Log.w(TAG, "continuity setup rejected ($reason); retrying without it")
                     continuityEnabled = false
                     retriedWithoutContinuity = true
                     latestSessionHandle = null
-                    replaceConnection(resuming = false)
+                    replaceConnection(resuming = false, lifecycle = lifecycle)
                     return
                 }
                 val fatal = isFatal(code, reason)
-                if (!fatal && resumeConnection("socket closed $code $reason")) return
+                if (!fatal && resumeConnection("socket closed $code $reason", lifecycle)) return
                 listener.onClosed(
                     "closed ($code${if (reason.isNotBlank()) " $reason" else ""})",
                     fatal = fatal,
@@ -122,17 +138,21 @@ class GeminiLiveProvider(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (!isCurrent(connectionId) || closedByUser) return
+                if (!isCurrent(connectionId) || !isLifecycleActive(lifecycle)) return
                 Log.e(TAG, "failure", t)
                 val code = response?.code ?: 0
                 val message = response?.let { "HTTP $code" } ?: (t.message ?: "connection failed")
                 val fatal = code in 400..499
-                if (!fatal && resumeConnection(message)) return
+                if (!fatal && resumeConnection(message, lifecycle)) return
                 listener.onClosed(message, fatal = fatal)
             }
         })
         synchronized(connectionLock) {
-            if (activeConnectionId == connectionId) socket = webSocket else webSocket.cancel()
+            if (activeConnectionId == connectionId && isLifecycleActive(lifecycle)) {
+                socket = webSocket
+            } else {
+                webSocket.cancel()
+            }
         }
     }
 
@@ -156,8 +176,6 @@ class GeminiLiveProvider(
             put("speechConfig", speech)
             put("temperature", 0.82)
             put("topP", 0.82)
-            // Deliberately omit thinkingConfig. Gemini 3.1 Flash Live defaults to
-            // minimal thinking, which is the provider's lowest-latency setting.
         }
         val realtimeInputConfig = JSONObject().apply {
             put("automaticActivityDetection", JSONObject().apply {
@@ -203,6 +221,7 @@ class GeminiLiveProvider(
             json.has("setupComplete") -> {
                 consecutiveResumeAttempts = 0
                 goAwayPending = false
+                timing.sessionReady()
                 listener.onReady(OUTPUT_SAMPLE_RATE)
             }
             json.has("sessionResumptionUpdate") -> {
@@ -217,10 +236,14 @@ class GeminiLiveProvider(
                 val content = json.getJSONObject("serverContent")
                 if (content.optBoolean("interrupted")) {
                     modelGenerating = false
+                    timing.interrupted()
                     listener.onInterrupted()
                 }
                 content.optJSONObject("inputTranscription")?.optString("text")
-                    ?.takeIf { it.isNotEmpty() }?.let(listener::onUserText)
+                    ?.takeIf { it.isNotEmpty() }?.let { finalized ->
+                        timing.speechFinalized()
+                        listener.onUserText(finalized)
+                    }
                 content.optJSONObject("outputTranscription")?.optString("text")
                     ?.takeIf { it.isNotEmpty() }?.let(listener::onAgentText)
                 content.optJSONObject("modelTurn")?.optJSONArray("parts")?.let { parts ->
@@ -229,6 +252,7 @@ class GeminiLiveProvider(
                         val data = parts.optJSONObject(index)?.optJSONObject("inlineData")
                             ?.optString("data").orEmpty()
                         if (data.isNotEmpty()) {
+                            timing.firstAudio()
                             runCatching { Base64.decode(data, Base64.DEFAULT) }
                                 .getOrNull()?.let(listener::onAgentAudio)
                         }
@@ -238,7 +262,7 @@ class GeminiLiveProvider(
                 if (content.optBoolean("turnComplete")) listener.onTurnComplete()
                 if (content.optBoolean("generationComplete") || content.optBoolean("turnComplete")) {
                     modelGenerating = false
-                    if (goAwayPending) resumeConnection("generation completed after goAway")
+                    if (goAwayPending) resumeConnection("generation completed after goAway", lifecycleEpoch.get())
                 }
             }
             json.has("goAway") -> {
@@ -267,8 +291,6 @@ class GeminiLiveProvider(
 
     override fun sendText(text: String) {
         if (text.isBlank()) return
-        // Gemini 3.1 supports clientContent only for seeding initial history.
-        // Ongoing director cues must use realtimeInput to remain truly live.
         socket?.send(
             JSONObject()
                 .put("realtimeInput", JSONObject().put("text", text))
@@ -281,13 +303,17 @@ class GeminiLiveProvider(
     }
 
     private fun scheduleGoAwayResume(connectionId: Int, delayMs: Long) {
+        val lifecycle = lifecycleEpoch.get()
         thread(name = "gemini-go-away") {
             val deadline = System.currentTimeMillis() + delayMs
-            while (isCurrent(connectionId) && modelGenerating && System.currentTimeMillis() < deadline) {
+            while (
+                isLifecycleActive(lifecycle) && isCurrent(connectionId) && modelGenerating &&
+                System.currentTimeMillis() < deadline
+            ) {
                 Thread.sleep(100L)
             }
-            if (isCurrent(connectionId) && goAwayPending && !closedByUser) {
-                resumeConnection("server goAway")
+            if (isLifecycleActive(lifecycle) && isCurrent(connectionId) && goAwayPending) {
+                resumeConnection("server goAway", lifecycle)
             }
         }
     }
@@ -302,18 +328,19 @@ class GeminiLiveProvider(
     }
 
     @Synchronized
-    private fun resumeConnection(reason: String): Boolean {
-        if (closedByUser || !continuityEnabled) return false
+    private fun resumeConnection(reason: String, lifecycle: Long): Boolean {
+        if (!isLifecycleActive(lifecycle) || !continuityEnabled) return false
         val handle = latestSessionHandle?.takeIf { it.isNotBlank() } ?: return false
         if (consecutiveResumeAttempts >= MAX_INTERNAL_RESUMES) return false
         consecutiveResumeAttempts += 1
         Log.i(TAG, "resuming Gemini session after $reason; attempt=$consecutiveResumeAttempts")
         latestSessionHandle = handle
-        replaceConnection(resuming = true)
+        replaceConnection(resuming = true, lifecycle = lifecycle)
         return true
     }
 
-    private fun replaceConnection(resuming: Boolean) {
+    private fun replaceConnection(resuming: Boolean, lifecycle: Long = lifecycleEpoch.get()) {
+        if (!isLifecycleActive(lifecycle)) return
         val previous = synchronized(connectionLock) {
             activeConnectionId = ++nextConnectionId
             val old = socket
@@ -321,13 +348,17 @@ class GeminiLiveProvider(
             old
         }
         runCatching { previous?.cancel() }
-        connect(resuming)
+        connect(resuming = resuming, lifecycle = lifecycle)
     }
 
     private fun isCurrent(connectionId: Int): Boolean = activeConnectionId == connectionId
 
+    override fun timingSnapshot(): LiveProviderTimingSnapshot = timing.snapshot()
+
     override fun stop() {
+        timing.teardownStarted()
         closedByUser = true
+        lifecycleEpoch.incrementAndGet()
         val previous = synchronized(connectionLock) {
             activeConnectionId = ++nextConnectionId
             val old = socket
@@ -335,6 +366,7 @@ class GeminiLiveProvider(
             old
         }
         runCatching { previous?.close(1000, "bye") }
+        timing.teardownComplete()
     }
 
     private fun isFatal(code: Int, reason: String): Boolean {

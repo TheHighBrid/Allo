@@ -1,6 +1,10 @@
 package com.kenza.callsim.memory
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -16,6 +20,10 @@ class MemoryStore(context: Context) {
     private val appContext = context.applicationContext
     private val storage = SecureMemoryStorage(appContext)
     private val legacyPrefs = appContext.getSharedPreferences("kenza_memory", Context.MODE_PRIVATE)
+
+    // Narrative compression of pruned memories. Inert until a real summarizer is injected.
+    private val compressor = MemoryCompressor()
+    private val compressionScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 
     @Synchronized
     fun snapshot(): MemorySnapshot = readState()
@@ -104,6 +112,26 @@ class MemoryStore(context: Context) {
         ).firstOrNull()
     }
 
+    /**
+     * Replaces one existing durable memory in place after an explicit user correction.
+     * The original ID, creation time, source, importance and pin state remain stable, while
+     * the stale text is removed immediately so retrieval can never return both versions.
+     */
+    @Synchronized
+    fun correctMemory(id: String, replacementText: String): Boolean {
+        val state = readState()
+        val index = state.items.indexOfFirst { it.id == id }
+        if (index < 0) return false
+        val corrected = MemoryPolicy.corrected(
+            item = state.items[index],
+            replacementText = replacementText,
+            now = System.currentTimeMillis(),
+        ) ?: return false
+        val items = state.items.toMutableList().also { it[index] = corrected }
+        writeState(state.copy(items = prune(items)))
+        return true
+    }
+
     @Synchronized
     fun deleteMemory(id: String) {
         val state = readState()
@@ -151,7 +179,8 @@ class MemoryStore(context: Context) {
         highlights: List<String>,
         unresolvedTopics: List<String>,
         followUp: String?,
-        memoryIds: List<String>,
+        memoryIds: List<String> = emptyList(),
+        candidateMemories: List<MemoryItem> = emptyList(),
         error: String? = null,
     ) {
         val state = readState()
@@ -167,10 +196,50 @@ class MemoryStore(context: Context) {
             unresolvedTopics = unresolvedTopics.cleanMemoryList(8),
             followUp = followUp?.trim()?.take(500),
             memoryIds = memoryIds.distinct(),
+            candidateMemories = candidateMemories
+                .map { it.copy(sourceCallId = old.id) }
+                .distinctBy { MemoryPolicy.normalize(it.text) }
+                .take(MAX_CANDIDATE_MEMORIES),
             processing = false,
             processingError = error,
         )
         writeState(state.copy(calls = calls.sortedBy { it.startedAt }.takeLast(MAX_CALLS)))
+    }
+
+    /** Promotes one reviewed candidate into durable memory and removes it from the review queue. */
+    @Synchronized
+    fun approveCandidateMemory(callId: String, candidateId: String): Boolean {
+        val initial = readState()
+        val call = initial.calls.firstOrNull { it.id == callId } ?: return false
+        val candidate = call.candidateMemories.firstOrNull { it.id == candidateId } ?: return false
+        val storedId = addAll(listOf(candidate.copy(sourceCallId = callId))).firstOrNull() ?: return false
+
+        val latest = readState()
+        val calls = latest.calls.map { current ->
+            if (current.id != callId) current else current.copy(
+                memoryIds = (current.memoryIds + storedId).distinct(),
+                candidateMemories = current.candidateMemories.filterNot { it.id == candidateId },
+            )
+        }
+        writeState(latest.copy(calls = calls))
+        return true
+    }
+
+    /** Rejects one extracted candidate without ever adding it to durable memory. */
+    @Synchronized
+    fun rejectCandidateMemory(callId: String, candidateId: String): Boolean {
+        val state = readState()
+        var found = false
+        val calls = state.calls.map { call ->
+            if (call.id != callId || call.candidateMemories.none { it.id == candidateId }) {
+                call
+            } else {
+                found = true
+                call.copy(candidateMemories = call.candidateMemories.filterNot { it.id == candidateId })
+            }
+        }
+        if (found) writeState(state.copy(calls = calls))
+        return found
     }
 
     fun callTimes(): List<Long> = snapshot().calls.map { it.startedAt }.filter { it > 0 }.sorted()
@@ -232,16 +301,24 @@ class MemoryStore(context: Context) {
         return MemorySnapshot(items = prune(items), calls = calls, updatedAt = System.currentTimeMillis())
     }
 
+    /**
+     * Keeps the highest-scoring memories. Unpinned items that fall outside the retention
+     * window are handed to [compressor] for narrative compression when one is configured;
+     * the default compressor is inert, so they are simply dropped as before.
+     */
     private fun prune(items: List<MemoryItem>): List<MemoryItem> {
-        val now = System.currentTimeMillis()
-        return items
-            .filter { it.text.isNotBlank() }
-            .sortedByDescending { MemoryPolicy.score(it, now) }
-            .take(MAX_MEMORIES)
+        val split = MemoryPolicy.retention(items, System.currentTimeMillis(), MAX_MEMORIES)
+        if (compressor.isEnabled && split.cold.isNotEmpty()) {
+            compressionScope.launch {
+                compressor.compress(split.cold)?.let { narrative -> addAll(listOf(narrative)) }
+            }
+        }
+        return split.keep
     }
 
     private companion object {
         const val MAX_MEMORIES = 400
         const val MAX_CALLS = 60
+        const val MAX_CANDIDATE_MEMORIES = 10
     }
 }

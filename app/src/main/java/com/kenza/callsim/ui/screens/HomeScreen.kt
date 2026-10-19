@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhoneCallback
 import androidx.compose.material.icons.filled.Settings
@@ -34,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -58,17 +60,22 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenSchedule: () -> Unit,
     onOpenMemory: () -> Unit,
+    onOpenScriptStudio: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(
+                Brush.verticalGradient(
+                    listOf(IOSColors.CallScreenTop, IOSColors.GroupedBackground)
+                )
+            )
     ) {
         val isCompactHeight = maxHeight < 760.dp
         val contentModifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp)
+            .padding(horizontal = 24.dp)
             .let { baseModifier ->
                 if (isCompactHeight) {
                     baseModifier.verticalScroll(rememberScrollState())
@@ -81,7 +88,7 @@ fun HomeScreen(
             modifier = contentModifier,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(54.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -90,8 +97,9 @@ fun HomeScreen(
                 Text(
                     "Allo",
                     color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeQuickAction(Icons.Filled.Memory, "Memory", onOpenMemory)
@@ -99,9 +107,39 @@ fun HomeScreen(
                     HomeQuickAction(Icons.Filled.Settings, "Settings", onOpenSettings)
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(18.dp))
 
             ConnectionStatus(isConfigured = state.isConfigured)
+
+            Spacer(Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(IOSColors.SecondaryBackground)
+                    .clickable(role = Role.Button, onClick = onOpenScriptStudio)
+                    .semantics { contentDescription = "Open Script Studio" }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = null,
+                    tint = IOSColors.Blue,
+                    modifier = Modifier.size(22.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text("Script Studio", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Create and edit a one-sided call script",
+                        color = IOSColors.SecondaryLabel,
+                        fontSize = 12.sp,
+                    )
+                }
+                Text("Open", color = IOSColors.Blue, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
 
             Spacer(Modifier.height(8.dp))
 
@@ -135,11 +173,12 @@ fun HomeScreen(
 
             Keypad(
                 onKey = onDigit,
-                keyBackground = Color(0xFF1C1C1E),
+                keyBackground = IOSColors.KeypadBackground,
+
                 modifier = Modifier.widthIn(max = 360.dp)
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
 
             Row(
                 modifier = Modifier
@@ -188,7 +227,7 @@ fun HomeScreen(
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(Color(0xFF1C1C1E))
+                    .background(IOSColors.SecondaryBackground)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -204,7 +243,7 @@ fun HomeScreen(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(Modifier.size(8.dp))
-                Text("Simulate incoming call", color = Color.White, fontSize = 15.sp)
+                Text("Simulate incoming call", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(40.dp))
         }
@@ -221,7 +260,7 @@ private fun HomeQuickAction(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .background(Color(0xFF1C1C1E))
+            .background(IOSColors.SecondaryBackground)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center

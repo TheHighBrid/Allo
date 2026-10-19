@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.kenza.callsim.schedule.CallScheduler
 import com.kenza.callsim.schedule.ScheduleKind
 import com.kenza.callsim.schedule.ScheduledCall
+import com.kenza.callsim.ui.components.IosNavHeader
+import com.kenza.callsim.ui.components.IosSectionCaption
 import com.kenza.callsim.ui.theme.IOSColors
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -53,27 +55,22 @@ import java.util.UUID
 private val DAY_LABELS = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat") // index0 -> Calendar.SUNDAY(1)
 
 @Composable
-fun ScheduleScreen(onBack: () -> Unit) {
+fun ScheduleScreen(onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     val scheduler = remember { CallScheduler(context) }
     val items = remember { mutableStateListOf<ScheduledCall>().apply { addAll(scheduler.schedules()) } }
     fun refresh() { items.clear(); items.addAll(scheduler.schedules()) }
 
     Column(
-        Modifier.fillMaxSize().background(Color.Black).verticalScroll(rememberScrollState())
+        Modifier.fillMaxSize().background(IOSColors.GroupedBackground).verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = IOSColors.Blue,
-                modifier = Modifier.size(26.dp).clickable(onClick = onBack))
-            Spacer(Modifier.size(12.dp))
-            Text("Schedule a call", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(16.dp))
+        IosNavHeader(title = "Schedule", onBack = onBack)
+        Spacer(Modifier.height(8.dp))
 
         PermissionsSection(scheduler)
 
-        SectionTitle("Quick test — ring after")
+        IosSectionCaption("Quick test — ring after")
         val quick = listOf(
             "5s" to 5_000L, "10s" to 10_000L, "1 min" to 60_000L,
             "10 min" to 600_000L, "30 min" to 1_800_000L, "1 hr" to 3_600_000L,
@@ -93,7 +90,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
         RecurringBuilder(scheduler) { refresh() }
 
         Spacer(Modifier.height(20.dp))
-        SectionTitle("Scheduled (${items.size})")
+        IosSectionCaption("Scheduled (${items.size})")
         if (items.isEmpty()) {
             Text("Nothing scheduled yet.", color = IOSColors.SecondaryLabel, fontSize = 14.sp)
         } else {
@@ -113,7 +110,7 @@ fun ScheduleScreen(onBack: () -> Unit) {
 @Composable
 private fun PermissionsSection(scheduler: CallScheduler) {
     val context = LocalContext.current
-    SectionTitle("Permissions")
+    IosSectionCaption("Permissions")
     if (!scheduler.canScheduleExact()) {
         PermRow("Exact alarms — needed for on-time ringing") {
             CallScheduler.exactAlarmSettingsIntent()?.let { context.startActivity(it) }
@@ -151,7 +148,7 @@ private fun PermissionsSection(scheduler: CallScheduler) {
 private fun SpecificDateTimeBuilder(scheduler: CallScheduler, onAdded: () -> Unit) {
     val context = LocalContext.current
     Card {
-        SectionTitle("Specific date & time")
+        IosSectionCaption("Specific date & time")
         Chip("Pick date & time…") {
             val now = Calendar.getInstance()
             DatePickerDialog(context, { _, y, mo, d ->
@@ -178,7 +175,7 @@ private fun RecurringBuilder(scheduler: CallScheduler, onAdded: () -> Unit) {
     var endMin by remember { mutableStateOf(15 * 60 + 30) }  // default 3:30 PM
 
     Card {
-        SectionTitle("Recurring")
+        IosSectionCaption("Recurring")
         Row {
             Chip("Weekly", selected = !monthly) { monthly = false }
             Spacer(Modifier.size(8.dp))
@@ -281,17 +278,12 @@ private fun ScheduleRow(call: ScheduledCall, onToggle: (Boolean) -> Unit, onDele
 
 // ---- small building blocks ----
 
-@Composable
-private fun SectionTitle(text: String) {
-    Text(text, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
-}
 
 @Composable
 private fun Card(content: ColumnContent) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF1C1C1E)).padding(14.dp)
+            .background(IOSColors.SecondaryBackground).padding(16.dp)
     ) { content() }
 }
 
@@ -307,7 +299,7 @@ private fun WrapRow(content: @Composable () -> Unit) {
 private fun Chip(label: String, selected: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.clip(RoundedCornerShape(18.dp))
-            .background(if (selected) IOSColors.Blue else Color(0xFF2C2C2E))
+            .background(if (selected) IOSColors.Blue else IOSColors.TertiaryBackground)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {

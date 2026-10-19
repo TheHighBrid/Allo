@@ -1,6 +1,8 @@
 package com.kenza.callsim.memory
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,5 +42,84 @@ class MemoryPolicyTest {
         val pinned = normal.copy(id = "pinned", pinned = true)
 
         assertTrue(MemoryPolicy.score(pinned, now) > MemoryPolicy.score(normal, now))
+    }
+
+    @Test
+    fun correction_replacesTextWhilePreservingRecordIdentityAndProvenance() {
+        val original = MemoryItem(
+            id = "stable-id",
+            kind = MemoryKind.PREFERENCE,
+            owner = MemoryOwner.USER,
+            text = "Mohamed prefers blue",
+            createdAt = 100L,
+            updatedAt = 200L,
+            importance = 5,
+            confidence = 0.6,
+            pinned = true,
+            sourceCallId = "call-1",
+        )
+
+        val corrected = MemoryPolicy.corrected(
+            item = original,
+            replacementText = "  Mohamed prefers orange now  ",
+            now = 500L,
+        )!!
+
+        assertEquals("stable-id", corrected.id)
+        assertEquals("Mohamed prefers orange now", corrected.text)
+        assertEquals(100L, corrected.createdAt)
+        assertEquals(500L, corrected.updatedAt)
+        assertEquals(1.0, corrected.confidence, 0.0)
+        assertEquals(5, corrected.importance)
+        assertTrue(corrected.pinned)
+        assertEquals("call-1", corrected.sourceCallId)
+        assertNotEquals(original.text, corrected.text)
+    }
+
+    @Test
+    fun correction_rejectsBlankReplacement() {
+        val item = MemoryItem(
+            id = "id",
+            kind = MemoryKind.FACT,
+            text = "Existing fact",
+            createdAt = 100L,
+        )
+
+        assertTrue(MemoryPolicy.corrected(item, "   ", 200L) == null)
+    }
+
+    @Test
+    fun narrativeRanksAboveOtherwiseEqualFact() {
+        val now = 1_000_000L
+        val fact = MemoryItem(id = "f", kind = MemoryKind.FACT, text = "A", createdAt = now)
+        val narrative = fact.copy(id = "n", kind = MemoryKind.NARRATIVE)
+        assertEquals(
+            MemoryPolicy.NARRATIVE_SCORE_BOOST,
+            MemoryPolicy.score(narrative, now) - MemoryPolicy.score(fact, now),
+            1e-9,
+        )
+    }
+
+    @Test
+    fun retentionKeepsBestAndOffersOnlyUnpinnedOverflowForCompression() {
+        val now = 1_000_000L
+        fun item(id: String, importance: Int, pinned: Boolean = false, text: String = id) = MemoryItem(
+            id = id, kind = MemoryKind.FACT, text = text, createdAt = now,
+            importance = importance, pinned = pinned,
+        )
+        val split = MemoryPolicy.retention(
+            listOf(
+                item("low", 1),
+                item("high", 5),
+                item("blank", 5, text = "  "),
+                item("mid", 3),
+                item("pinnedLow", 1, pinned = true),
+            ),
+            now = now,
+            max = 2,
+        )
+        // Pinned items score +100, so they are retained ahead of everything else.
+        assertEquals(listOf("pinnedLow", "high"), split.keep.map { it.id })
+        assertEquals(listOf("mid", "low"), split.cold.map { it.id })
     }
 }
