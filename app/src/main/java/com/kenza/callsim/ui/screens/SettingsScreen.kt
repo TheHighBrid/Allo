@@ -11,16 +11,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -55,6 +51,7 @@ fun SettingsScreen(
     voiceId: String,
     onSave: (SettingsData) -> Unit,
     onBack: () -> Unit,
+    onOpenVoiceLab: () -> Unit = {},
 ) {
     var provider by remember { mutableStateOf(initial.provider) }
     var geminiKey by remember { mutableStateOf(initial.geminiApiKey) }
@@ -70,6 +67,7 @@ fun SettingsScreen(
     var persona by remember { mutableStateOf(initial.persona) }
     var userCity by remember { mutableStateOf(initial.userCity) }
     var weatherKey by remember { mutableStateOf(initial.weatherApiKey) }
+    var earpieceFullDuplex by remember { mutableStateOf(initial.earpieceFullDuplex) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -124,48 +122,55 @@ fun SettingsScreen(
                 }
             }
             Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onOpenVoiceLab,
+                colors = ButtonDefaults.buttonColors(containerColor = IOSColors.Blue),
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+            ) {
+                Text("Open Voice Lab (blind A/B)", color = Color.White, fontSize = 15.sp)
+            }
+            Spacer(Modifier.height(8.dp))
             Field("Model (advanced)", geminiModel, { geminiModel = it },
-                "gemini-3.1-flash-live-preview",
+                "gemini-2.5-flash-native-audio-preview-09-2025",
                 "The default model prioritizes fast turn-taking. Only change this when testing another supported Gemini Live model.")
         } else {
-            Text(
-                "ElevenLabs is retained for versatility only. Gemini remains the primary daily engine and the source used for memory extraction.",
-                color = IOSColors.SecondaryLabel,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
             Field("Agent ID", agentId, { agentId = it },
                 "ElevenLabs Conversational AI agent id",
                 "Only required when you deliberately choose the optional ElevenLabs engine.")
             Field("ElevenLabs secret API key (private agents only)", elevenKey, { elevenKey = it },
                 "sk_...",
-                "Leave blank for a public agent. For a private agent, paste the secret key shown when it was created or rotated. It starts with sk_. Do not paste the Key ID.",
+                "Leave blank for a public agent.",
                 secret = true)
             Field("Backup keys — optional failover", backups, { backups = it },
-                "agentId, sk_...\nagentId, sk_...",
-                "Each private-agent backup needs its secret sk_ key, not the dashboard Key ID. Public-agent backups should not need a key.",
+                "agentId, sk_...",
+                "Each private-agent backup needs its secret sk_ key.",
                 singleLine = false)
             Spacer(Modifier.height(4.dp))
             Text("Voice ID: ${voiceId.ifEmpty { "—" }}", color = IOSColors.SecondaryLabel, fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))
             SettingSwitch(
                 "Send persona + memory as agent variables",
-                "Fills {{kenza_persona}}, {{continuity_briefing}} and {{opening_line}} in the agent prompt and first " +
-                    "message. No Security override needed. See docs/ELEVENLABS_AGENT.md.",
+                "Fills dynamic variables in the agent prompt.",
                 dynamicVariables,
             ) { dynamicVariables = it }
             SettingSwitch(
                 "Expressive audio tags",
-                "Keep on for Eleven v4 / v3 voices. Turn off for Flash, which would read tags aloud.",
+                "Keep on for Eleven v4 / v3 voices. Turn off for Flash.",
                 expressiveTags,
             ) { expressiveTags = it }
             SettingSwitch(
                 "Replace the agent's whole prompt (advanced)",
-                "Sends persona + memory as a full system-prompt override. " +
-                    "Enable Security → Overrides → System prompt on that agent first.",
+                "Requires Security → Overrides → System prompt on that agent.",
                 injectMemory,
             ) { injectMemory = it }
         }
+
+        IosSectionCaption("Call realism")
+        SettingSwitch(
+            "Earpiece full duplex (experimental)",
+            "Lets you interrupt while Kenza speaks on the built-in mic. May cause echo or self-interrupts without a strong AEC path. Headset routes stay full duplex either way.",
+            earpieceFullDuplex,
+        ) { earpieceFullDuplex = it }
 
         IosSectionCaption("Call identity")
         Field("Contact name", contactName, { contactName = it }, "Kenza", "Shown on the call screen.")
@@ -177,7 +182,7 @@ fun SettingsScreen(
             "Used for local context such as weather.")
         Field("OpenWeatherMap API key (optional)", weatherKey, { weatherKey = it },
             "Leave blank to disable weather",
-            "Prepares weather-aware care calls. Weather-triggered calls are not active yet, and no weather request is made without a key.",
+            "No weather request is made without a key.",
             secret = true)
 
         Spacer(Modifier.height(24.dp))
@@ -215,6 +220,7 @@ fun SettingsScreen(
                         persona = persona,
                         weatherApiKey = weatherKey,
                         userCity = userCity,
+                        earpieceFullDuplex = earpieceFullDuplex,
                     )
                 )
                 onBack()
@@ -283,7 +289,7 @@ private fun Field(
 @Composable
 private fun SettingSwitch(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-        Column(Modifier.weight(1f)) {
+        Column(modifier.weight(1f)) {
             Text(title, color = Color.White, fontSize = 15.sp)
             Text(detail, color = IOSColors.SecondaryLabel, fontSize = 12.sp)
         }
