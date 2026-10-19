@@ -11,11 +11,10 @@ import com.kenza.callsim.config.SettingsData
 import com.kenza.callsim.initiative.InitiativeEngine
 import com.kenza.callsim.initiative.InitiativeStore
 import com.kenza.callsim.memory.MemoryContext
-import com.kenza.callsim.memory.MemoryExtractor
 import com.kenza.callsim.memory.MemoryStore
-import com.kenza.callsim.schedule.DeferredScheduledCall
 import com.kenza.callsim.schedule.IncomingCallService
 import com.kenza.callsim.schedule.ScheduledCallRuntime
+import com.kenza.callsim.voice.AudioRoutePolicy
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.LiveTurnTelemetry
@@ -89,6 +88,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var elevenCreds: List<Pair<String, String>> = emptyList()
     private var credIndex = 0
 
+    init {
+        AudioRoutePolicy.earpieceFullDuplexEnabled = config.earpieceFullDuplex
+    }
+
     fun simulateIncomingCall() {
         if (!CallTransitionRules.canPlaceCall(_state.value.phase)) return
         if (!ScheduledCallRuntime.tryStartUserInitiatedCall()) return
@@ -115,7 +118,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             now = now,
             excludedTokens = initiativeStore.history().recentTokens,
         )?.token ?: InitiativeEngine.SOCIAL_TOKEN
-
         pendingInitiativeToken = selected
         initiativeOpeningSent = false
         if (countAgainstCooldown) initiativeStore.markInitiated(selected, now)
@@ -129,9 +131,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         ringtone.stop()
         _state.update { it.copy(phase = CallPhase.DIALING, errorMessage = null) }
         dialingJob?.cancel()
-        dialingJob = viewModelScope.launch {
-            beginConnecting()
-        }
+        dialingJob = viewModelScope.launch { beginConnecting() }
     }
 
     fun answerIncoming() {
@@ -159,36 +159,26 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         transcript.clear()
         callStartedAt = System.currentTimeMillis()
         _state.update { it.copy(phase = CallPhase.CONNECTING) }
-        if (!config.isConfigured) {
-            onSessionActive(demo = true)
-        } else {
-            ensureMicThenStart()
-        }
+        if (!config.isConfigured) onSessionActive(demo = true) else ensureMicThenStart()
     }
 
     private fun ensureMicThenStart() {
         val ctx = getApplication<Application>()
         val granted = ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            startVoiceSession()
-        } else {
+        if (granted) startVoiceSession()
+        else {
             pendingStartAfterPermission = true
             _state.update { it.copy(errorMessage = NEED_MIC) }
         }
     }
 
     fun onMicPermissionResult(granted: Boolean) {
-        if (_state.value.errorMessage == NEED_MIC) {
-            _state.update { it.copy(errorMessage = null) }
-        }
+        if (_state.value.errorMessage == NEED_MIC) _state.update { it.copy(errorMessage = null) }
         if (!pendingStartAfterPermission) return
         pendingStartAfterPermission = false
-        if (granted) {
-            startVoiceSession()
-        } else {
-            finishCall("Microphone permission is required for the call.")
-        }
+        if (granted) startVoiceSession()
+        else finishCall("Microphone permission is required for the call.")
     }
 
     private fun startVoiceSession() {
@@ -196,7 +186,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             onSessionActive(demo = true)
             return
         }
-
         configureAudioRouting()
         telemetry = LiveTurnTelemetry(config.diagnosticsEnabled)
         speechEnergy.reset()
@@ -217,8 +206,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                     mic = MicRecorder(
                         onChunk = { chunk ->
                             when (speechEnergy.onPcm(chunk)) {
-                                LocalSpeechEnergyTracker.Event.START ->
-                                    telemetry.localSpeechStart()
+                                LocalSpeechEnergyTracker.Event.START -> telemetry.localSpeechStart()
                                 LocalSpeechEnergyTracker.Event.END -> {
                                     telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
                                     maybeClientEndpoint()
@@ -303,7 +291,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         val now = System.currentTimeMillis()
         val memoryContext = MemoryContext.build(memory, config.contactName, now)
         val initiativeContext = initiativePrompt(now)
-
         return when (config.provider) {
             ProviderType.GEMINI -> GeminiLiveProvider(
                 apiKey = config.geminiApiKey,
@@ -352,11 +339,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             ?: InitiativeEngine.bestSeed(memory.snapshot(), now)?.cue
             ?: "Choose a natural subject from the private continuity briefing that you genuinely want to discuss."
         return "\n\n=== KENZA INITIATED THIS CALL ===\n" +
-            "This incoming call was your choice. You have a reason or conversational impulse of your own. " +
-            "Speak first when the call connects and lead naturally into the subject below. Do not announce " +
-            "that a system selected a topic, do not recite memory, and do not turn it into an interview.\n" +
-            "Conversation seed: $cue\n" +
-            "=== END CALL INITIATIVE ===\n"
+            "This incoming call was your choice. Speak first when the call connects.\n" +
+            "Conversation seed: $cue\n=== END CALL INITIATIVE ===\n"
     }
 
     private fun maybeClientEndpoint() {
@@ -384,6 +368,26 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(isSpeakerOn = on) }
     }
 
+    fun toggleKeypad() {
+        _state.update { it.copy(isKeypadVisible = !it.isKeypadVisible) }
+    }
+
+    fun pressKeypadKey(key: Char) {
+        dtmf.play(key)
+        appendDigit(key)
+    }
+
+    fun appendDigit(digit: Char) {
+        _state.update { it.copy(dialedNumber = (it.dialedNumber + digit).take(32)) }
+    }
+
+    fun deleteDigit() {
+        _state.update {
+            if (it.dialedNumber.isEmpty()) it
+            else it.copy(dialedNumber = it.dialedNumber.dropLast(1))
+        }
+    }
+
     fun endCall() {
         userEnded = true
         hangUpInternal()
@@ -395,12 +399,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         speakingResetJob?.cancel()
         silenceRepairJob?.cancel()
         endCallJob?.cancel()
-        mic?.stop()
-        mic = null
-        player?.stop()
-        player = null
-        client?.stop()
-        client = null
+        mic?.stop(); mic = null
+        player?.stop(); player = null
+        client?.stop(); client = null
         speechEnergy.reset()
         _state.update {
             it.copy(
@@ -408,6 +409,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 activity = AgentActivity.IDLE,
                 isMuted = false,
                 micStreaming = false,
+                isKeypadVisible = false,
             )
         }
     }
@@ -432,7 +434,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 phase = CallPhase.ACTIVE,
                 activity = if (demo) AgentActivity.IDLE else AgentActivity.LISTENING,
-                callSeconds = 0,
+                callDurationSec = 0,
+                errorMessage = if (demo) DEMO_NOTICE else null,
             )
         }
         timerJob?.cancel()
@@ -441,7 +444,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 delay(1000)
                 _state.update { s ->
                     if (s.phase != CallPhase.ACTIVE) return@update s
-                    s.copy(callSeconds = s.callSeconds + 1)
+                    s.copy(callDurationSec = s.callDurationSec + 1)
                 }
             }
         }
@@ -466,10 +469,59 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private fun configureAudioRouting() {
         @Suppress("DEPRECATION")
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        AudioRoutePolicy.earpieceFullDuplexEnabled = config.earpieceFullDuplex
     }
 
+    fun currentSettings(): SettingsData = SettingsData(
+        provider = config.provider,
+        geminiApiKey = config.geminiApiKey,
+        geminiVoice = config.geminiVoice,
+        geminiModel = config.geminiModel,
+        agentId = config.agentId,
+        elevenApiKey = config.apiKey,
+        elevenBackups = config.elevenBackups,
+        elevenInjectMemory = config.elevenInjectMemory,
+        elevenDynamicVariables = config.elevenDynamicVariables,
+        elevenExpressiveTags = config.elevenExpressiveTags,
+        contactName = config.contactName,
+        persona = config.personaPrompt,
+        weatherApiKey = config.weatherApiKey,
+        userCity = config.userCity,
+        earpieceFullDuplex = config.earpieceFullDuplex,
+    )
+
+    fun saveSettings(data: SettingsData) {
+        config.provider = data.provider
+        config.geminiApiKey = data.geminiApiKey
+        config.geminiVoice = data.geminiVoice
+        config.geminiModel = data.geminiModel
+        config.agentId = data.agentId
+        config.apiKey = data.elevenApiKey
+        config.elevenBackups = data.elevenBackups
+        config.elevenInjectMemory = data.elevenInjectMemory
+        config.elevenDynamicVariables = data.elevenDynamicVariables
+        config.elevenExpressiveTags = data.elevenExpressiveTags
+        config.contactName = data.contactName
+        config.personaPrompt = data.persona
+        config.weatherApiKey = data.weatherApiKey
+        config.userCity = data.userCity
+        config.earpieceFullDuplex = data.earpieceFullDuplex
+        AudioRoutePolicy.earpieceFullDuplexEnabled = data.earpieceFullDuplex
+        _state.update {
+            it.copy(contactName = data.contactName, isConfigured = config.isConfigured)
+        }
+    }
+
+    fun voiceId(): String = config.voiceId
+    fun isConsentAccepted(): Boolean = config.consentAccepted
+    fun acceptConsent() { config.consentAccepted = true }
+    fun clearError() { _state.update { it.copy(errorMessage = null) } }
+
     companion object {
-        private const val NEED_MIC = "NEED_MIC"
+        const val NEED_MIC = "NEED_MIC"
+        const val DEMO_NOTICE =
+            "Demo mode: the selected voice provider is not configured, so the call screen works " +
+                "without live voice. Open Settings to connect a provider."
         private const val ELEVEN_OPENING_FALLBACK_MS = 1_500L
     }
 }
