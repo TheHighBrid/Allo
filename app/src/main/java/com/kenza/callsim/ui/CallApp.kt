@@ -53,6 +53,7 @@ import com.kenza.callsim.ui.screens.MemoryScreen
 import com.kenza.callsim.ui.screens.ScheduleScreen
 import com.kenza.callsim.ui.screens.ScriptStudioHubScreen
 import com.kenza.callsim.ui.screens.SettingsScreen
+import com.kenza.callsim.ui.screens.VoiceLabScreen
 import com.kenza.callsim.ui.theme.IOSColors
 
 @Composable
@@ -71,12 +72,25 @@ fun CallApp(
         if (state.errorMessage == CallViewModel.NEED_MIC) onNeedMicPermission()
     }
 
+    if (navigation.voiceLabPresented) {
+        VoiceLabScreen(
+            currentVoiceId = viewModel.currentSettings().geminiVoice,
+            onApplyVoice = { voice ->
+                val current = viewModel.currentSettings()
+                viewModel.saveSettings(current.copy(geminiVoice = voice))
+            },
+            onClose = { navigation = reduceNavigation(navigation, NavigationIntent.DismissVoiceLab) },
+        )
+        return
+    }
+
     if (navigation.settingsPresented) {
         SettingsScreen(
             initial = viewModel.currentSettings(),
             voiceId = viewModel.voiceId(),
             onSave = viewModel::saveSettings,
             onBack = { navigation = reduceNavigation(navigation, NavigationIntent.DismissSettings) },
+            onOpenVoiceLab = { navigation = reduceNavigation(navigation, NavigationIntent.PresentVoiceLab) },
         )
         return
     }
