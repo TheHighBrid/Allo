@@ -7,6 +7,50 @@ object LiveDiagnosticsGate {
     @Volatile var enabled: Boolean = false
 }
 
+/**
+ * Enhanced conversation turn state for improved realism tracking.
+ * This extends LiveTurnMetrics with conversation flow context.
+ */
+data class EnhancedTurnMetrics(
+    val turnId: Long,
+    val localSpeechStartMs: Long? = null,
+    val localSpeechEndMs: Long? = null,
+    val lastMicPacketQueuedMs: Long? = null,
+    val firstModelPacketReceivedMs: Long? = null,
+    val firstPlaybackQueuedMs: Long? = null,
+    val firstPlaybackHeadAdvanceMs: Long? = null,
+    val generationCompleteMs: Long? = null,
+    val turnCompleteMs: Long? = null,
+    val interrupted: Boolean = false,
+    val socketQueuePeakBytes: Long = 0,
+    val playbackQueuePeakMs: Int = 0,
+    val underrunsDelta: Int = 0,
+    val totalTokenCount: Int? = null,
+    val route: String = "unknown",
+    val networkClass: String = "unknown",
+    val sessionAgeMs: Long = 0,
+    val bargeInStartMs: Long? = null,
+    val interruptionReceivedMs: Long? = null,
+    val playbackStoppedMs: Long? = null,
+    // Conversation flow metrics
+    val conversationPhase: String = "unknown",
+    val turnPositionInDialog: Int = 0,
+    val isBargeInTurn: Boolean = false,
+    val userSpeechDurationMs: Long? = null,
+    val agentSpeechDurationMs: Long? = null,
+    val turnGapMs: Long? = null,
+) {
+    fun speechEndToPlaybackMs(): Long? = span(localSpeechEndMs, firstPlaybackHeadAdvanceMs)
+    fun speechEndToFirstPacketMs(): Long? = span(localSpeechEndMs, firstModelPacketReceivedMs)
+    fun bargeInToInterruptMs(): Long? = span(bargeInStartMs, interruptionReceivedMs)
+    fun interruptToPlaybackStopMs(): Long? = span(interruptionReceivedMs, playbackStoppedMs)
+    fun turnLatencyMs(): Long? = span(localSpeechEndMs, firstPlaybackHeadAdvanceMs)
+    fun userToAgentGapMs(): Long? = turnGapMs
+
+    private fun span(start: Long?, end: Long?): Long? =
+        if (start == null || end == null || end < start) null else end - start
+}
+
 data class LiveProviderTimingSnapshot(
     val connectionStartedMs: Long? = null,
     val socketConnectedMs: Long? = null,
@@ -204,6 +248,9 @@ class LiveTurnTelemetry(
 
     private var nextId = 1L
     private var current = LiveTurnMetrics(nextId)
+    private var turnCount = 0
+    private var lastUserSpeechEndMs: Long? = null
+    private var lastTurnStartMs: Long? = null
 
     /** Per-session aggregation; logged by [logSessionSummary] when diagnostics are enabled. */
     val session = LiveSessionStats(clockMs())
@@ -248,6 +295,7 @@ class LiveTurnTelemetry(
         if (current.firstPlaybackHeadAdvanceMs != null && current.bargeInStartMs == null && !current.interrupted) {
             current = current.copy(bargeInStartMs = atMs)
         }
+        lastTurnStartMs = atMs
     }
 
     /**
@@ -258,6 +306,7 @@ class LiveTurnTelemetry(
         if (current.firstPlaybackHeadAdvanceMs == null) {
             current = current.copy(localSpeechEndMs = atMs)
         }
+        lastUserSpeechEndMs = atMs
     }
 
     @Synchronized fun currentMetrics(): LiveTurnMetrics = current
@@ -299,11 +348,82 @@ class LiveTurnTelemetry(
         if (enabled) Log.i("LiveTurnMetrics", LiveTurnJson.encode(done))
         session.record(done)
         current = LiveTurnMetrics(++nextId)
+        turnCount++
+        lastUserSpeechEndMs = null
+        lastTurnStartMs = null
+    }
+
+    /**
+     * Enhanced complete with conversation flow context for improved realism tracking.
+     */
+    @Synchronized fun completeWithFlow(
+        route: String,
+        sessionAgeMs: Long,
+        conversationPhase: String = "unknown",
+        isBargeInTurn: Boolean = false,
+        userSpeechDurationMs: Long? = null,
+        agentSpeechDurationMs: Long? = null,
+        turnGapMs: Long? = null,
+    ) {
+        val done = current.copy(
+            turnCompleteMs = clockMs(),
+            route = route,
+            sessionAgeMs = sessionAgeMs,
+        )
+        
+        // Create enhanced metrics for diagnostics
+        val enhanced = EnhancedTurnMetrics(
+            turnId = done.turnId,
+            localSpeechStartMs = done.localSpeechStartMs,
+            localSpeechEndMs = done.localSpeechEndMs,
+            lastMicPacketQueuedMs = done.lastMicPacketQueuedMs,
+            firstModelPacketReceivedMs = done.firstModelPacketReceivedMs,
+            firstPlaybackQueuedMs = done.firstPlaybackQueuedMs,
+            firstPlaybackHeadAdvanceMs = done.firstPlaybackHeadAdvanceMs,
+            generationCompleteMs = done.generationCompleteMs,
+            turnCompleteMs = done.turnCompleteMs,
+            interrupted = done.interrupted,
+            socketQueuePeakBytes = done.socketQueuePeakBytes,
+            playbackQueuePeakMs = done.playbackQueuePeakMs,
+            underrunsDelta = done.underrunsDelta,
+            totalTokenCount = done.totalTokenCount,
+            route = route,
+            networkClass = done.networkClass,
+            sessionAgeMs = sessionAgeMs,
+            bargeInStartMs = done.bargeInStartMs,
+            interruptionReceivedMs = done.interruptionReceivedMs,
+            playbackStoppedMs = done.playbackStoppedMs,
+            conversationPhase = conversationPhase,
+            turnPositionInDialog = turnCount + 1,
+            isBargeInTurn = isBargeInTurn,
+            userSpeechDurationMs = userSpeechDurationMs,
+            agentSpeechDurationMs = agentSpeechDurationMs,
+            turnGapMs = turnGapMs
+        )
+        
+        if (enabled) {
+            Log.i("LiveTurnMetrics", LiveTurnJson.encode(done))
+            Log.i("EnhancedTurnMetrics", enhanced.toString())
+        }
+        session.record(done)
+        current = LiveTurnMetrics(++nextId)
+        turnCount++
+        lastUserSpeechEndMs = null
+        lastTurnStartMs = null
     }
 
     fun logSessionSummary(provider: String, timing: LiveProviderTimingSnapshot?) {
         if (enabled) Log.i("LiveSessionMetrics", session.summary(provider, timing))
     }
+
+    /** Get the current turn count */
+    fun getTurnCount(): Int = turnCount
+
+    /** Get time since last user speech ended */
+    fun getTimeSinceUserSpeechEndMs(): Long? = lastUserSpeechEndMs?.let { clockMs() - it }
+
+    /** Get time since last turn started */
+    fun getTimeSinceTurnStartMs(): Long? = lastTurnStartMs?.let { clockMs() - it }
 }
 
 /** Serializes one turn's timings; field names are fixed and carry no content. */

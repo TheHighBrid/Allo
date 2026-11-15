@@ -44,6 +44,7 @@ import com.kenza.callsim.call.CallUiState
 import com.kenza.callsim.ui.components.Keypad
 import com.kenza.callsim.ui.components.RoundControl
 import com.kenza.callsim.ui.theme.IOSColors
+import com.kenza.callsim.ui.theme.IOSTypography
 
 @Composable
 fun InCallScreen(
@@ -59,7 +60,7 @@ fun InCallScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF202A34), IOSColors.CallScreenTop, IOSColors.CallScreenBottom)
+                    listOf(IOSColors.CallScreenTop, IOSColors.CallScreenMid, IOSColors.CallScreenBottom)
                 )
             )
             .navigationBarsPadding()
@@ -71,20 +72,32 @@ fun InCallScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
         ) {
-            Text("Allo", color = Color.White.copy(alpha = 0.72f), fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text(
+                "Allo", 
+                color = IOSColors.TertiaryLabel, 
+                fontSize = 15.sp, 
+                fontWeight = FontWeight.Medium,
+                style = IOSTypography.bodyMedium
+            )
         }
         Spacer(Modifier.height(28.dp))
         Avatar(name = state.contactName, size = 112)
         Spacer(Modifier.height(18.dp))
         Text(
             state.contactName,
-            color = Color.White,
+            color = IOSColors.Label,
             fontSize = 36.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = (-0.6).sp,
+            style = IOSTypography.headlineSmall
         )
         Spacer(Modifier.height(6.dp))
-        Text(statusLine(state), color = IOSColors.SecondaryLabel, fontSize = 17.sp)
+        Text(
+            statusLine(state), 
+            color = IOSColors.SecondaryLabel, 
+            fontSize = 17.sp,
+            style = IOSTypography.bodyLarge
+        )
 
         if (state.phase == CallPhase.ACTIVE) {
             Spacer(Modifier.height(10.dp))
@@ -146,9 +159,9 @@ fun InCallScreen(
 @Composable
 private fun ConnectionPill(connected: Boolean, muted: Boolean) {
     val color = when {
-        muted -> IOSColors.SecondaryLabel
-        connected -> IOSColors.Green
-        else -> Color(0xFFFFCC00)
+        muted -> IOSColors.StatusYellow
+        connected -> IOSColors.StatusGreen
+        else -> IOSColors.StatusYellow
     }
     val label = when {
         muted -> "Microphone muted"
@@ -162,7 +175,12 @@ private fun ConnectionPill(connected: Boolean, muted: Boolean) {
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Box(Modifier.size(7.dp).background(color, CircleShape))
-            Text(label, color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp)
+            Text(
+                label, 
+                color = IOSColors.TertiaryLabel, 
+                fontSize = 12.sp,
+                style = IOSTypography.bodySmall
+            )
         }
     }
 }
@@ -218,10 +236,20 @@ private fun ControlItem(
             background = bg.copy(alpha = if (enabled) 1f else 0.4f),
             size = 72
         ) {
-            Icon(icon, contentDescription = label, tint = tint.copy(alpha = if (enabled) 1f else 0.5f), modifier = Modifier.size(30.dp))
+            Icon(
+                icon, 
+                contentDescription = label, 
+                tint = tint.copy(alpha = if (enabled) 1f else 0.5f), 
+                modifier = Modifier.size(30.dp)
+            )
         }
         Spacer(Modifier.height(8.dp))
-        Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.5f), fontSize = 13.sp)
+        Text(
+            label, 
+            color = IOSColors.SecondaryLabel.copy(alpha = if (enabled) 1f else 0.5f), 
+            fontSize = 13.sp,
+            style = IOSTypography.labelSmall
+        )
     }
 }
 

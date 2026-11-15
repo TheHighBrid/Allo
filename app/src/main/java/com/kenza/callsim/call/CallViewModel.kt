@@ -15,6 +15,7 @@ import com.kenza.callsim.memory.MemoryStore
 import com.kenza.callsim.schedule.IncomingCallService
 import com.kenza.callsim.schedule.ScheduledCallRuntime
 import com.kenza.callsim.voice.AudioRoutePolicy
+import com.kenza.callsim.voice.ConversationFlowTracker
 import com.kenza.callsim.voice.ElevenLabsProvider
 import com.kenza.callsim.voice.GeminiLiveProvider
 import com.kenza.callsim.voice.LiveTurnTelemetry
@@ -58,6 +59,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var lastClientEndpointMs = 0L
     private val transcriptAssembler = TranscriptAssembler()
     private val conversationRepair = ConversationRepairEngine()
+    private val conversationFlow = ConversationFlowTracker()
+    private var lastUserSpeechStartMs: Long = 0L
+    private var lastAgentSpeechStartMs: Long = 0L
 
     private val memory = MemoryStore(app)
     private val initiativeStore = InitiativeStore(app)
@@ -189,9 +193,12 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         configureAudioRouting()
         telemetry = LiveTurnTelemetry(config.diagnosticsEnabled)
         speechEnergy.reset()
+        conversationFlow.reset()
         sessionAgentAudioHeard = false
         sessionOpeningLine = ""
         sessionProviderName = config.provider.name.lowercase()
+        lastUserSpeechStartMs = 0L
+        lastAgentSpeechStartMs = 0L
 
         val ai = buildProvider(object : VoiceProvider.Listener {
             override fun onConnected() {
@@ -206,9 +213,14 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                     mic = MicRecorder(
                         onChunk = { chunk ->
                             when (speechEnergy.onPcm(chunk)) {
-                                LocalSpeechEnergyTracker.Event.START -> telemetry.localSpeechStart()
+                                LocalSpeechEnergyTracker.Event.START -> {
+                                    telemetry.localSpeechStart()
+                                    conversationFlow.onUserSpeechStart()
+                                    lastUserSpeechStartMs = System.currentTimeMillis()
+                                }
                                 LocalSpeechEnergyTracker.Event.END -> {
                                     telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
+                                    conversationFlow.onUserSpeechEnd()
                                     maybeClientEndpoint()
                                 }
                                 null -> Unit
@@ -231,6 +243,12 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 telemetry.modelAudio()
                 player?.enqueue(pcm)
                 markSpeaking()
+                
+                // Track agent speech start
+                if (!conversationFlow.isBargeInDetected()) {
+                    conversationFlow.onAgentSpeechStart()
+                    lastAgentSpeechStartMs = System.currentTimeMillis()
+                }
             }
             override fun onUserText(text: String) {
                 hadUserInteraction = true
@@ -242,12 +260,22 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 onConversationLine(fromUser = true, text = text, repair = repair)
                 repair?.let(::dispatchConversationRepair)
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
+                
+                // Track user text as speech end if we were in user speaking state
+                if (conversationFlow.getCurrentPhase() == ConversationFlowTracker.FlowPhase.USER_SPEAKING) {
+                    conversationFlow.onUserSpeechEnd()
+                }
             }
             override fun onAgentText(text: String) {
                 conversationRepair.onAgentText(text)
                 transcriptAssembler.appendAgent(text)
                 onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
+                
+                // Track agent text as speech start if we're in waiting state
+                if (conversationFlow.getCurrentPhase() == ConversationFlowTracker.FlowPhase.WAITING) {
+                    conversationFlow.onAgentSpeechStart()
+                }
             }
             override fun onAgentTextCorrected(original: String, corrected: String) {
                 if (!transcriptAssembler.correctAgent(original, corrected)) {
@@ -262,6 +290,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                     telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
                 }
                 telemetry.interrupted()
+                conversationFlow.onInterrupted()
+                conversationFlow.onAgentSpeechEnd()
                 silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcript += transcriptAssembler.commit()
                 player?.flush()
@@ -274,11 +304,31 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 player?.markTurnBoundary()
                 transcript += transcriptAssembler.commit()
                 conversationRepair.onAgentTurnComplete(System.currentTimeMillis())
+                conversationFlow.onTurnComplete()
+                conversationFlow.onAgentSpeechEnd()
                 armSilenceRepairCheck()
-                telemetry.complete(
-                    route = if (_state.value.isSpeakerOn) "speakerphone" else "earpiece_or_headset",
-                    sessionAgeMs = (System.currentTimeMillis() - callStartedAt).coerceAtLeast(0),
+                
+                val route = if (_state.value.isSpeakerOn) "speakerphone" else "earpiece_or_headset"
+                val sessionAgeMs = (System.currentTimeMillis() - callStartedAt).coerceAtLeast(0)
+                val userSpeechDuration = if (lastUserSpeechStartMs > 0L) {
+                    System.currentTimeMillis() - lastUserSpeechStartMs
+                } else null
+                val agentSpeechDuration = if (lastAgentSpeechStartMs > 0L) {
+                    System.currentTimeMillis() - lastAgentSpeechStartMs
+                } else null
+                
+                telemetry.completeWithFlow(
+                    route = route,
+                    sessionAgeMs = sessionAgeMs,
+                    conversationPhase = conversationFlow.getCurrentPhase().name,
+                    isBargeInTurn = conversationFlow.isBargeInDetected(),
+                    userSpeechDurationMs = userSpeechDuration,
+                    agentSpeechDurationMs = agentSpeechDuration,
+                    turnGapMs = conversationFlow.getFlowSnapshot().timeSinceUserSpeechEndMs
                 )
+                
+                lastUserSpeechStartMs = 0L
+                lastAgentSpeechStartMs = 0L
             }
             override fun onClosed(reason: String, fatal: Boolean) =
                 handleDisconnect("Disconnected: $reason", fatal)
@@ -403,6 +453,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         player?.stop(); player = null
         client?.stop(); client = null
         speechEnergy.reset()
+        conversationFlow.reset()
+        lastUserSpeechStartMs = 0L
+        lastAgentSpeechStartMs = 0L
         _state.update {
             it.copy(
                 phase = CallPhase.ENDED,
