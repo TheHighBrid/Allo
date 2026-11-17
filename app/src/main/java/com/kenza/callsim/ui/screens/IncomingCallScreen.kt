@@ -359,18 +359,24 @@ private fun BannerCallButton(
 
 @Composable
 fun Avatar(name: String, size: Int = 112) {
+    // Use iOS-style gradient based on name hash
+    val colorIndex = name.hashCode().mod(IOSColors.avatarColors.size)
+    val color1 = IOSColors.avatarColors[colorIndex]
+    val color2 = IOSColors.avatarColors[(colorIndex + 1).mod(IOSColors.avatarColors.size)]
+    
     Box(
         modifier = Modifier
             .size(size.dp)
             .clip(CircleShape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF8E8E93), Color(0xFF48484A)))),
+            .background(Brush.verticalGradient(listOf(color1, color2))),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = name.firstOrNull()?.uppercase() ?: "?",
+            text = name.takeIf { it.isNotBlank() }?.firstOrNull()?.uppercase()?.toString() ?: "?",
             color = Color.White,
             fontSize = (size / 2.2).sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.5.sp
         )
     }
 }

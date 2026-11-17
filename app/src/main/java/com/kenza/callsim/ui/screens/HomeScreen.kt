@@ -49,6 +49,7 @@ import com.kenza.callsim.call.CallUiState
 import com.kenza.callsim.ui.components.Keypad
 import com.kenza.callsim.ui.components.RoundControl
 import com.kenza.callsim.ui.theme.IOSColors
+import com.kenza.callsim.ui.theme.IOSTypography
 
 @Composable
 fun HomeScreen(
@@ -96,10 +97,11 @@ fun HomeScreen(
             ) {
                 Text(
                     "Allo",
-                    color = Color.White,
+                    color = IOSColors.Label,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp
+                    letterSpacing = (-0.5).sp,
+                    style = IOSTypography.titleLarge
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HomeQuickAction(Icons.Filled.Memory, "Memory", onOpenMemory)
@@ -276,12 +278,12 @@ private fun HomeQuickAction(
 
 @Composable
 private fun ConnectionStatus(isConfigured: Boolean) {
-    val statusColor = if (isConfigured) IOSColors.Green else Color(0xFFFF9F0A)
+    val statusColor = if (isConfigured) IOSColors.StatusGreen else IOSColors.StatusYellow
     val statusText = if (isConfigured) "Live voice ready" else "Demo mode"
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(Color(0xFF1C1C1E))
+            .background(IOSColors.SecondaryBackground)
             .padding(horizontal = 12.dp, vertical = 7.dp)
             .semantics { contentDescription = statusText },
         verticalAlignment = Alignment.CenterVertically,
@@ -290,9 +292,10 @@ private fun ConnectionStatus(isConfigured: Boolean) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor))
         Text(
             text = statusText,
-            color = Color.White,
+            color = IOSColors.Label,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            style = IOSTypography.bodySmall
         )
     }
 }
