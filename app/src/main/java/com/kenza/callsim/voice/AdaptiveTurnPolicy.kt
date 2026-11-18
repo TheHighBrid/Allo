@@ -11,7 +11,7 @@ internal object TurnPolicy {
     fun classify(text: String, seriousContext: Boolean = false): Intent {
         val tail = text.lowercase(Locale.ROOT).trim()
         return when {
-            Regex("""\b(hold on|one second|give me a second|wait a second|let me think|attends|une seconde|chwia|sber)\b""").containsMatchIn(tail) -> Intent.HOLD
+            Regex("""\b(hold on|one second|give me a second|wait(?: a second)?|let me think|attends|une seconde|chwia|sber)\b[.!?…]*$""").containsMatchIn(tail) -> Intent.HOLD
             tail.endsWith("...") || tail.endsWith("…") ||
                 Regex("""\b(um|uh|euh|i mean|je pense|genre)$""").containsMatchIn(tail) -> Intent.THINKING
             Regex("""\b(upset|sad|scared|grief|worried|hurt|triste|inquiet|peur|deuil)\b""").containsMatchIn(tail) || seriousContext -> Intent.SERIOUS
@@ -66,6 +66,9 @@ internal class AdaptiveActivityGate(
             val packets = preroll.toList()
             preroll.clear()
             return Decision(start = true, packets = packets)
+        }
+        if (voiced && quietChunks >= 12 && TurnPolicy.classify(tail) == TurnPolicy.Intent.HOLD) {
+            tail = ""
         }
         quietChunks = if (voiced) 0 else quietChunks + 1
         if (quietChunks >= TurnPolicy.quietChunks(TurnPolicy.classify(tail, seriousContext))) {

@@ -27,6 +27,7 @@ class GeminiLiveProvider(
 
     companion object {
         private const val TAG = "GeminiLive"
+        private const val REALTIME_INPUT = "realtimeInput"
         private const val HOST = "generativelanguage.googleapis.com"
         private const val MAX_INTERNAL_RESUMES = 4
         const val OUTPUT_SAMPLE_RATE = 24_000
@@ -282,26 +283,30 @@ class GeminiLiveProvider(
         }
     }
 
-    override fun sendAudio(pcm16le16k: ByteArray): Unit = synchronized(connectionLock) {
-        val currentSocket = socket ?: return@synchronized
-        if (!readyForAudio) return@synchronized
-        if (adaptiveTurns) {
-            val decision = activityGate.onAudio(pcm16le16k)
-            if (decision.start) sendActivity(currentSocket, "activityStart")
-            decision.packets.forEach { sendPcm(currentSocket, it) }
-            if (decision.end) sendActivity(currentSocket, "activityEnd")
-            Unit
-        } else sendPcm(currentSocket, pcm16le16k)
+    override fun sendAudio(pcm16le16k: ByteArray) {
+        synchronized(connectionLock) {
+            val currentSocket = socket ?: return
+            if (!readyForAudio) return
+            if (adaptiveTurns) sendAdaptiveAudio(currentSocket, pcm16le16k)
+            else sendPcm(currentSocket, pcm16le16k)
+        }
+    }
+
+    private fun sendAdaptiveAudio(ws: WebSocket, pcm: ByteArray) {
+        val decision = activityGate.onAudio(pcm)
+        if (decision.start) sendActivity(ws, "activityStart")
+        decision.packets.forEach { sendPcm(ws, it) }
+        if (decision.end) sendActivity(ws, "activityEnd")
     }
 
     private fun sendActivity(ws: WebSocket, name: String) {
-        ws.send(JSONObject().put("realtimeInput", JSONObject().put(name, JSONObject())).toString())
+        ws.send(JSONObject().put(REALTIME_INPUT, JSONObject().put(name, JSONObject())).toString())
     }
 
     private fun sendPcm(currentSocket: WebSocket, pcm16le16k: ByteArray) {
         val encoded = Base64.encodeToString(pcm16le16k, Base64.NO_WRAP)
         val message = JSONObject().put(
-            "realtimeInput",
+            REALTIME_INPUT,
             JSONObject().put(
                 "audio",
                 JSONObject()
@@ -317,20 +322,20 @@ class GeminiLiveProvider(
         if (text.isBlank()) return
         socket?.send(
             JSONObject()
-                .put("realtimeInput", JSONObject().put("text", text))
+                .put(REALTIME_INPUT, JSONObject().put("text", text))
                 .toString()
         )
     }
 
-    override fun endAudioStream(): Unit = synchronized(connectionLock) {
-        val ws = socket ?: return@synchronized
-        if (!readyForAudio) return@synchronized
-        if (adaptiveTurns) {
-            if (activityGate.finish()) sendActivity(ws, "activityEnd")
-            Unit
-        } else {
-            ws.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
-            Unit
+    override fun endAudioStream() {
+        synchronized(connectionLock) {
+            val ws = socket ?: return
+            if (!readyForAudio) return
+            if (adaptiveTurns) {
+                if (activityGate.finish()) sendActivity(ws, "activityEnd")
+            } else {
+                ws.send(JSONObject().put(REALTIME_INPUT, JSONObject().put("audioStreamEnd", true)).toString())
+            }
         }
     }
 

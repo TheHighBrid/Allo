@@ -12,6 +12,7 @@ class AdaptiveTurnPolicyTest {
         assertEquals(TurnPolicy.Intent.THINKING, TurnPolicy.classify("I mean..."))
         assertEquals(TurnPolicy.Intent.SERIOUS, TurnPolicy.classify("I feel worried"))
         assertEquals(TurnPolicy.Intent.HOLD, TurnPolicy.classify("Attends une seconde"))
+        assertEquals(TurnPolicy.Intent.HOLD, TurnPolicy.classify("wait"))
         assertTrue(TurnPolicy.quietChunks(TurnPolicy.Intent.THINKING) >
             TurnPolicy.quietChunks(TurnPolicy.Intent.NORMAL))
     }
@@ -40,7 +41,9 @@ class AdaptiveTurnPolicyTest {
         gate.onTranscript("hold on")
         repeat(50) { assertFalse(gate.onAudio(quiet).end) }
         assertFalse(gate.onAudio(voiced).end)
-        repeat(99) { assertFalse(gate.onAudio(quiet).end) }
+        repeat(TurnPolicy.quietChunks(TurnPolicy.Intent.NORMAL) - 1) {
+            assertFalse(gate.onAudio(quiet).end)
+        }
         assertTrue(gate.onAudio(quiet).end)
         assertFalse(gate.finish())
     }
