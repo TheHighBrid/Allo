@@ -182,9 +182,10 @@ class MemoryStore(context: Context) {
         memoryIds: List<String> = emptyList(),
         candidateMemories: List<MemoryItem> = emptyList(),
         error: String? = null,
+        startedAt: Long? = null,
     ) {
         val state = readState()
-        val index = state.calls.indexOfLast { it.processing }
+        val index = state.calls.indexOfLast { it.processing && (startedAt == null || it.startedAt == startedAt) }
         if (index < 0) return
         val calls = state.calls.toMutableList()
         val old = calls[index]

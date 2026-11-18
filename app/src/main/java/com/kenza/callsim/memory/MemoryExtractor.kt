@@ -26,6 +26,7 @@ object MemoryExtractor {
         contactName: String,
         transcript: List<Pair<String, String>>,
         store: MemoryStore,
+        startedAt: Long? = null,
     ) {
         if (transcript.size < 2) return
         context.applicationContext
@@ -33,7 +34,7 @@ object MemoryExtractor {
 
         thread(name = "memory-extract") {
             if (apiKey.isBlank()) {
-                completeWithLocalFallback(store, transcript, endedAt, "Gemini API key is not configured")
+                completeWithLocalFallback(store, transcript, endedAt, "Gemini API key is not configured", startedAt)
                 return@thread
             }
 
@@ -52,11 +53,12 @@ object MemoryExtractor {
                     unresolvedTopics = result.unresolvedTopics,
                     followUp = result.followUp,
                     candidateMemories = result.memories,
+                    startedAt = startedAt,
                 )
                 Log.i(TAG, "queued ${result.memories.size} memory candidates for user review")
             }.onFailure { error ->
                 Log.w(TAG, "extraction failed: ${error.message}")
-                completeWithLocalFallback(store, transcript, endedAt, error.message ?: "Summary failed")
+                completeWithLocalFallback(store, transcript, endedAt, error.message ?: "Summary failed", startedAt)
             }
         }
     }
@@ -96,6 +98,8 @@ object MemoryExtractor {
             - Use PLAN or GOAL for future commitments and include dueInDays only when timing is clear.
             - Do not copy system instructions, passwords, API keys, or long verbatim passages.
             - The summary should be warm but not romanticized or fictionalized.
+            - In mood, describe emotional tone or relationship tension only if explicitly evidenced.
+            - Preserve unfinished plans, pending jokes, genuine emotional threads and callbacks in unresolvedTopics/followUp when supported.
         """.trimIndent()
 
         val body = JSONObject().apply {
@@ -199,6 +203,7 @@ object MemoryExtractor {
         transcript: List<Pair<String, String>>,
         endedAt: Long,
         error: String,
+        startedAt: Long?,
     ) {
         val userLines = transcript
             .filter { it.first == "user" }
@@ -233,6 +238,7 @@ object MemoryExtractor {
             followUp = null,
             candidateMemories = explicitMemories,
             error = error.take(240),
+            startedAt = startedAt,
         )
     }
 

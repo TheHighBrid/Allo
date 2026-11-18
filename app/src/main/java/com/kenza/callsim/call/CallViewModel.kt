@@ -12,6 +12,7 @@ import com.kenza.callsim.initiative.InitiativeEngine
 import com.kenza.callsim.initiative.InitiativeStore
 import com.kenza.callsim.memory.MemoryContext
 import com.kenza.callsim.memory.MemoryStore
+import com.kenza.callsim.memory.MemoryExtractor
 import com.kenza.callsim.schedule.IncomingCallService
 import com.kenza.callsim.schedule.ScheduledCallRuntime
 import com.kenza.callsim.voice.AudioRoutePolicy
@@ -57,6 +58,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         endHangoverChunks = com.kenza.callsim.voice.GeminiLiveTuning.CLIENT_ENDPOINT_HANGOVER_CHUNKS,
     )
     private var lastClientEndpointMs = 0L
+    private var director = KenzaLiveDirector(java.time.ZonedDateTime.now().hour)
+    private var userSpeechEndedMs = 0L
+    private var agentSpeakingTurn = false
+    private var interruptedTurn = false
     private val transcriptAssembler = TranscriptAssembler()
     private val conversationRepair = ConversationRepairEngine()
     private val conversationFlow = ConversationFlowTracker()
@@ -161,6 +166,9 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         elevenCreds = config.elevenCredentials()
         credIndex = 0
         transcript.clear()
+        transcriptAssembler.clear()
+        conversationRepair.clear()
+        director = KenzaLiveDirector(java.time.ZonedDateTime.now().hour)
         callStartedAt = System.currentTimeMillis()
         _state.update { it.copy(phase = CallPhase.CONNECTING) }
         if (!config.isConfigured) onSessionActive(demo = true) else ensureMicThenStart()
@@ -197,6 +205,10 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         sessionAgentAudioHeard = false
         sessionOpeningLine = ""
         sessionProviderName = config.provider.name.lowercase()
+        lastClientEndpointMs = 0L
+        userSpeechEndedMs = 0L
+        agentSpeakingTurn = false
+        interruptedTurn = false
         lastUserSpeechStartMs = 0L
         lastAgentSpeechStartMs = 0L
 
@@ -206,26 +218,29 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             }
             override fun onReady(outputSampleRate: Int) {
                 if (player == null) {
-                    player = PcmPlayer(outputSampleRate, telemetry.playback).also { it.start() }
+                    player = PcmPlayer(outputSampleRate, telemetry.playback, config.phoneColoration).also { it.start() }
                 }
                 if (mic == null) {
                     speechEnergy.reset()
                     mic = MicRecorder(
                         onChunk = { chunk ->
-                            when (speechEnergy.onPcm(chunk)) {
+                            val event = speechEnergy.onPcm(chunk)
+                            when (event) {
                                 LocalSpeechEnergyTracker.Event.START -> {
                                     telemetry.localSpeechStart()
                                     conversationFlow.onUserSpeechStart()
                                     lastUserSpeechStartMs = System.currentTimeMillis()
+                                    userSpeechEndedMs = 0L
                                 }
                                 LocalSpeechEnergyTracker.Event.END -> {
-                                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
+                                    userSpeechEndedMs = speechEnergy.lastVoicedMs() ?: System.currentTimeMillis()
+                                    telemetry.localSpeechEnd(userSpeechEndedMs)
                                     conversationFlow.onUserSpeechEnd()
-                                    maybeClientEndpoint()
                                 }
                                 null -> Unit
                             }
                             client?.sendAudio(chunk)
+                            if (event == LocalSpeechEnergyTracker.Event.END) maybeClientEndpoint()
                         },
                         onError = { msg -> handleDisconnect("Microphone: $msg", fatal = true) },
                         onStreaming = { _state.update { it.copy(micStreaming = true) } }
@@ -234,7 +249,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                         it.start()
                     }
                 }
-                onSessionActive(demo = false)
+                if (_state.value.phase != CallPhase.ACTIVE) onSessionActive(demo = false)
+                if (config.provider == ProviderType.GEMINI && !initiativeOpeningSent && !openingHeardThisCall) {
+                    initiativeOpeningSent = true
+                    client?.sendText("[[DIRECTOR: The call just connected. ${KenzaDynamicVariables.describe(callDirection())} Give only a short natural greeting, then listen.]]")
+                }
             }
             override fun onAgentAudio(pcm: ByteArray) {
                 sessionAgentAudioHeard = true
@@ -245,7 +264,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 markSpeaking()
                 
                 // Track agent speech start
-                if (!conversationFlow.isBargeInDetected()) {
+                if (!agentSpeakingTurn) {
+                    agentSpeakingTurn = true
                     conversationFlow.onAgentSpeechStart()
                     lastAgentSpeechStartMs = System.currentTimeMillis()
                 }
@@ -256,26 +276,19 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 player?.markTurnBoundary()
                 silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcriptAssembler.appendUser(text)
-                val repair = conversationRepair.onUserText(text)
-                onConversationLine(fromUser = true, text = text, repair = repair)
-                repair?.let(::dispatchConversationRepair)
+                conversationRepair.onUserText(text)
+                // Do not inject an extra generation while native audio is answering.
+                director.onUserText(text)
                 _state.update { it.copy(lastUserText = text, activity = AgentActivity.THINKING) }
                 
-                // Track user text as speech end if we were in user speaking state
-                if (conversationFlow.getCurrentPhase() == ConversationFlowTracker.FlowPhase.USER_SPEAKING) {
-                    conversationFlow.onUserSpeechEnd()
-                }
+                // Input transcription may be partial; only local voice activity ends speech.
             }
             override fun onAgentText(text: String) {
                 conversationRepair.onAgentText(text)
                 transcriptAssembler.appendAgent(text)
-                onConversationLine(fromUser = false, text = text)
                 _state.update { it.copy(lastAgentText = text) }
                 
-                // Track agent text as speech start if we're in waiting state
-                if (conversationFlow.getCurrentPhase() == ConversationFlowTracker.FlowPhase.WAITING) {
-                    conversationFlow.onAgentSpeechStart()
-                }
+                // Audio, not transcription, marks the start of the audible agent turn.
             }
             override fun onAgentTextCorrected(original: String, corrected: String) {
                 if (!transcriptAssembler.correctAgent(original, corrected)) {
@@ -286,15 +299,17 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             override fun onInterrupted() {
-                if (speechEnergy.forceEnd() == LocalSpeechEnergyTracker.Event.END) {
-                    telemetry.localSpeechEnd(speechEnergy.lastVoicedMs() ?: System.currentTimeMillis())
-                }
                 telemetry.interrupted()
+                player?.flush()
+                interruptedTurn = true
+                agentSpeakingTurn = false
+                mic?.agentSpeaking = false
+                speakingResetJob?.cancel()
+                director.onInterrupted()
                 conversationFlow.onInterrupted()
                 conversationFlow.onAgentSpeechEnd()
                 silenceRepairJob?.cancel(); silenceRepairJob = null
                 transcript += transcriptAssembler.commit()
-                player?.flush()
                 _state.update { it.copy(activity = AgentActivity.LISTENING) }
             }
             override fun onUsage(total: Int?, prompt: Int?, response: Int?) = telemetry.usage(total)
@@ -304,14 +319,15 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 player?.markTurnBoundary()
                 transcript += transcriptAssembler.commit()
                 conversationRepair.onAgentTurnComplete(System.currentTimeMillis())
-                conversationFlow.onTurnComplete()
+                val flowBeforeCompletion = conversationFlow.getFlowSnapshot()
+                val bargeIn = interruptedTurn || flowBeforeCompletion.bargeInDetected
                 conversationFlow.onAgentSpeechEnd()
-                armSilenceRepairCheck()
+                conversationFlow.onTurnComplete()
                 
                 val route = if (_state.value.isSpeakerOn) "speakerphone" else "earpiece_or_headset"
                 val sessionAgeMs = (System.currentTimeMillis() - callStartedAt).coerceAtLeast(0)
-                val userSpeechDuration = if (lastUserSpeechStartMs > 0L) {
-                    System.currentTimeMillis() - lastUserSpeechStartMs
+                val userSpeechDuration = if (lastUserSpeechStartMs > 0L && userSpeechEndedMs >= lastUserSpeechStartMs) {
+                    userSpeechEndedMs - lastUserSpeechStartMs
                 } else null
                 val agentSpeechDuration = if (lastAgentSpeechStartMs > 0L) {
                     System.currentTimeMillis() - lastAgentSpeechStartMs
@@ -320,13 +336,19 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 telemetry.completeWithFlow(
                     route = route,
                     sessionAgeMs = sessionAgeMs,
-                    conversationPhase = conversationFlow.getCurrentPhase().name,
-                    isBargeInTurn = conversationFlow.isBargeInDetected(),
+                    conversationPhase = flowBeforeCompletion.phase.name,
+                    isBargeInTurn = bargeIn,
                     userSpeechDurationMs = userSpeechDuration,
                     agentSpeechDurationMs = agentSpeechDuration,
-                    turnGapMs = conversationFlow.getFlowSnapshot().timeSinceUserSpeechEndMs
+                    turnGapMs = if (userSpeechEndedMs > 0L && lastAgentSpeechStartMs >= userSpeechEndedMs) {
+                        lastAgentSpeechStartMs - userSpeechEndedMs
+                    } else null
                 )
                 
+                director.onTurnComplete(sessionAgeMs)
+                agentSpeakingTurn = false
+                interruptedTurn = false
+                userSpeechEndedMs = 0L
                 lastUserSpeechStartMs = 0L
                 lastAgentSpeechStartMs = 0L
             }
@@ -347,14 +369,15 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 model = config.geminiModel,
                 voiceName = config.geminiVoice,
                 systemPrompt = config.personaPrompt + KenzaVoiceStyle.forGemini() +
-                    KenzaVoiceStyle.CONVERSATIONAL_AGENCY + memoryContext + initiativeContext,
+                    KenzaVoiceStyle.CONVERSATIONAL_AGENCY + director.prompt() + memoryContext + initiativeContext,
                 listener = listener,
                 tokenBrokerUrl = config.geminiTokenBrokerUrl,
+                adaptiveTurns = config.adaptiveTurns,
             )
             ProviderType.ELEVENLABS -> {
                 val (aid, key) = elevenCreds.getOrElse(credIndex) { config.agentId to config.apiKey }
                 val persona = config.personaPrompt +
-                    KenzaVoiceStyle.forElevenLabs(config.elevenExpressiveTags) + KenzaVoiceStyle.CONVERSATIONAL_AGENCY
+                    KenzaVoiceStyle.forElevenLabs(config.elevenExpressiveTags) + KenzaVoiceStyle.CONVERSATIONAL_AGENCY + director.prompt()
                 val override = if (config.elevenInjectMemory) persona + memoryContext + initiativeContext else null
                 val variables = if (config.elevenDynamicVariables) {
                     sessionOpeningLine = KenzaCallOpening.openingLine(callDirection(), openingHeardThisCall)
@@ -394,10 +417,11 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun maybeClientEndpoint() {
-        if (client !is GeminiLiveProvider) return
+        if (client !is GeminiLiveProvider || config.adaptiveTurns) return
         if (mic?.agentSpeaking == true) return
         if (_state.value.isMuted) return
         val now = System.currentTimeMillis()
+        if (userSpeechEndedMs <= lastClientEndpointMs) return
         if (now - lastClientEndpointMs < com.kenza.callsim.voice.GeminiLiveTuning.CLIENT_ENDPOINT_MIN_INTERVAL_MS) return
         lastClientEndpointMs = now
         client?.endAudioStream()
@@ -405,8 +429,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleMute() {
         val muted = !_state.value.isMuted
-        if (muted) client?.endAudioStream()
         mic?.muted = muted
+        if (muted) client?.endAudioStream()
         _state.update { it.copy(isMuted = muted) }
     }
 
@@ -451,7 +475,18 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         endCallJob?.cancel()
         mic?.stop(); mic = null
         player?.stop(); player = null
-        client?.stop(); client = null
+        client?.stop()
+        telemetry.logSessionSummary(sessionProviderName, client?.timingSnapshot())
+        client = null
+        transcript += transcriptAssembler.commit()
+        val completedTranscript = transcript.toList()
+        transcript.clear()
+        if (callStartedAt > 0L && completedTranscript.size >= 2) {
+            memory.recordCall(callStartedAt)
+            MemoryExtractor.extract(getApplication<Application>(), config.geminiApiKey, config.contactName,
+                completedTranscript, memory, callStartedAt)
+        }
+        callStartedAt = 0L
         speechEnergy.reset()
         conversationFlow.reset()
         lastUserSpeechStartMs = 0L
@@ -515,10 +550,6 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun onConversationLine(fromUser: Boolean, text: String, repair: Any? = null) {}
-    private fun dispatchConversationRepair(repair: Any) {}
-    private fun armSilenceRepairCheck() {}
-
     private fun configureAudioRouting() {
         @Suppress("DEPRECATION")
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
@@ -541,6 +572,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         weatherApiKey = config.weatherApiKey,
         userCity = config.userCity,
         earpieceFullDuplex = config.earpieceFullDuplex,
+        adaptiveTurns = config.adaptiveTurns,
+        phoneColoration = config.phoneColoration,
     )
 
     fun saveSettings(data: SettingsData) {
@@ -559,6 +592,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
         config.weatherApiKey = data.weatherApiKey
         config.userCity = data.userCity
         config.earpieceFullDuplex = data.earpieceFullDuplex
+        config.adaptiveTurns = data.adaptiveTurns
+        config.phoneColoration = data.phoneColoration
         AudioRoutePolicy.earpieceFullDuplexEnabled = data.earpieceFullDuplex
         _state.update {
             it.copy(contactName = data.contactName, isConfigured = config.isConfigured)

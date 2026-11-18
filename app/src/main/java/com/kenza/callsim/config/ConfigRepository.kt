@@ -24,6 +24,8 @@ data class SettingsData(
     val weatherApiKey: String,
     val userCity: String,
     val earpieceFullDuplex: Boolean = false,
+    val adaptiveTurns: Boolean = false,
+    val phoneColoration: Boolean = false,
 )
 
 /**
@@ -169,6 +171,14 @@ class ConfigRepository(context: Context) {
         get() = prefs.getBoolean(KEY_EARPIECE_FULL_DUPLEX, false)
         set(value) = prefs.edit().putBoolean(KEY_EARPIECE_FULL_DUPLEX, value).apply()
 
+    var adaptiveTurns: Boolean
+        get() = prefs.getBoolean("adaptive_live_turns", false)
+        set(value) = prefs.edit().putBoolean("adaptive_live_turns", value).apply()
+
+    var phoneColoration: Boolean
+        get() = prefs.getBoolean("phone_coloration", false)
+        set(value) = prefs.edit().putBoolean("phone_coloration", value).apply()
+
     private companion object {
         const val KEY_PROVIDER = "provider"
         const val KEY_GEMINI_KEY = "gemini_api_key"
@@ -225,7 +235,7 @@ class ConfigRepository(context: Context) {
             quick follow-ups, half-finished thoughts, a rare filler, and natural topic changes.
             Do not use bullet points, give strategy memos, over-explain, interrogate him, end every
             turn with a question, or turn every moment into therapy. React emotionally before advice,
-            ask one or two useful questions, then give a clear conversational opinion. Take ordinary
+            ask at most one useful question, then give a clear conversational opinion. Take ordinary
             input at face value and sometimes simply react.
 
             CALL CONTINUITY: obey explicit call-direction context. If you called Mohamed, sound like

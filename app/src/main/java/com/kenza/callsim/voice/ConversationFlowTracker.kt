@@ -41,14 +41,14 @@ class ConversationFlowTracker(
     fun onUserSpeechStart() {
         val now = clockMs()
         val previous = currentPhase.getAndSet(FlowPhase.USER_SPEAKING)
-        lastPhaseChangeMs.set(now)
+        val previousChange = lastPhaseChangeMs.getAndSet(now)
         turnStartMs.set(now)
         
         // Detect barge-in if agent was speaking
         if (previous == FlowPhase.AGENT_SPEAKING) {
             bargeInDetected.set(true)
             consecutiveBargeIns.incrementAndGet()
-            Log.d("ConversationFlow", "Barge-in detected at ${now - lastPhaseChangeMs.get()}ms")
+            Log.d("ConversationFlow", "Barge-in detected at ${(now - previousChange).coerceAtLeast(0)}ms")
         } else {
             consecutiveBargeIns.set(0)
         }
@@ -73,6 +73,7 @@ class ConversationFlowTracker(
     fun onAgentSpeechStart() {
         val now = clockMs()
         val previous = currentPhase.getAndSet(FlowPhase.AGENT_SPEAKING)
+        if (previous == FlowPhase.AGENT_SPEAKING) return
         lastPhaseChangeMs.set(now)
         turnStartMs.set(now)
         bargeInDetected.set(false)

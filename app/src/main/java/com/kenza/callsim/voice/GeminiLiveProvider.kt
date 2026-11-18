@@ -22,6 +22,7 @@ class GeminiLiveProvider(
     private val systemPrompt: String,
     private val listener: VoiceProvider.Listener,
     private val tokenBrokerUrl: String = "",
+    private val adaptiveTurns: Boolean = false,
 ) : VoiceProvider {
 
     companion object {
@@ -42,6 +43,8 @@ class GeminiLiveProvider(
     private val lifecycleEpoch = AtomicLong(0L)
 
     private val connectionLock = Any()
+    private val activityGate = AdaptiveActivityGate()
+    @Volatile private var readyForAudio = false
     private var nextConnectionId = 0
     @Volatile private var activeConnectionId = 0
     @Volatile private var socket: WebSocket? = null
@@ -86,6 +89,8 @@ class GeminiLiveProvider(
     ) {
         if (!isLifecycleActive(lifecycle)) return
         val connectionId = synchronized(connectionLock) {
+            readyForAudio = false
+            activityGate.reset()
             nextConnectionId += 1
             activeConnectionId = nextConnectionId
             activeConnectionId
@@ -179,11 +184,13 @@ class GeminiLiveProvider(
         }
         val realtimeInputConfig = JSONObject().apply {
             put("automaticActivityDetection", JSONObject().apply {
-                put("disabled", false)
-                put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
-                put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
-                put("prefixPaddingMs", GeminiLiveTuning.VAD_PREFIX_PADDING_MS)
-                put("silenceDurationMs", GeminiLiveTuning.VAD_SILENCE_DURATION_MS)
+                put("disabled", adaptiveTurns)
+                if (!adaptiveTurns) {
+                    put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+                    put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+                    put("prefixPaddingMs", GeminiLiveTuning.VAD_PREFIX_PADDING_MS)
+                    put("silenceDurationMs", GeminiLiveTuning.VAD_SILENCE_DURATION_MS)
+                }
             })
         }
         val setup = JSONObject().apply {
@@ -221,6 +228,7 @@ class GeminiLiveProvider(
             json.has("setupComplete") -> {
                 consecutiveResumeAttempts = 0
                 goAwayPending = false
+                synchronized(connectionLock) { readyForAudio = true }
                 timing.sessionReady()
                 listener.onReady(OUTPUT_SAMPLE_RATE)
             }
@@ -241,12 +249,13 @@ class GeminiLiveProvider(
                 }
                 content.optJSONObject("inputTranscription")?.optString("text")
                     ?.takeIf { it.isNotEmpty() }?.let { finalized ->
+                        if (adaptiveTurns) synchronized(connectionLock) { activityGate.onTranscript(finalized) }
                         timing.speechFinalized()
                         listener.onUserText(finalized)
                     }
                 content.optJSONObject("outputTranscription")?.optString("text")
                     ?.takeIf { it.isNotEmpty() }?.let(listener::onAgentText)
-                content.optJSONObject("modelTurn")?.optJSONArray("parts")?.let { parts ->
+                if (!content.optBoolean("interrupted")) content.optJSONObject("modelTurn")?.optJSONArray("parts")?.let { parts ->
                     modelGenerating = true
                     for (index in 0 until parts.length()) {
                         val data = parts.optJSONObject(index)?.optJSONObject("inlineData")
@@ -273,8 +282,23 @@ class GeminiLiveProvider(
         }
     }
 
-    override fun sendAudio(pcm16le16k: ByteArray) {
-        val currentSocket = socket ?: return
+    override fun sendAudio(pcm16le16k: ByteArray): Unit = synchronized(connectionLock) {
+        val currentSocket = socket ?: return@synchronized
+        if (!readyForAudio) return@synchronized
+        if (adaptiveTurns) {
+            val decision = activityGate.onAudio(pcm16le16k)
+            if (decision.start) sendActivity(currentSocket, "activityStart")
+            decision.packets.forEach { sendPcm(currentSocket, it) }
+            if (decision.end) sendActivity(currentSocket, "activityEnd")
+            Unit
+        } else sendPcm(currentSocket, pcm16le16k)
+    }
+
+    private fun sendActivity(ws: WebSocket, name: String) {
+        ws.send(JSONObject().put("realtimeInput", JSONObject().put(name, JSONObject())).toString())
+    }
+
+    private fun sendPcm(currentSocket: WebSocket, pcm16le16k: ByteArray) {
         val encoded = Base64.encodeToString(pcm16le16k, Base64.NO_WRAP)
         val message = JSONObject().put(
             "realtimeInput",
@@ -298,8 +322,16 @@ class GeminiLiveProvider(
         )
     }
 
-    override fun endAudioStream() {
-        socket?.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
+    override fun endAudioStream(): Unit = synchronized(connectionLock) {
+        val ws = socket ?: return@synchronized
+        if (!readyForAudio) return@synchronized
+        if (adaptiveTurns) {
+            if (activityGate.finish()) sendActivity(ws, "activityEnd")
+            Unit
+        } else {
+            ws.send(JSONObject().put("realtimeInput", JSONObject().put("audioStreamEnd", true)).toString())
+            Unit
+        }
     }
 
     private fun scheduleGoAwayResume(connectionId: Int, delayMs: Long) {
@@ -342,6 +374,8 @@ class GeminiLiveProvider(
     private fun replaceConnection(resuming: Boolean, lifecycle: Long = lifecycleEpoch.get()) {
         if (!isLifecycleActive(lifecycle)) return
         val previous = synchronized(connectionLock) {
+            readyForAudio = false
+            activityGate.reset()
             activeConnectionId = ++nextConnectionId
             val old = socket
             socket = null

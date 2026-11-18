@@ -223,7 +223,9 @@ internal object AudioPlaybackGate {
 class PcmPlayer(
     private val sampleRate: Int = AudioConfig.SAMPLE_RATE,
     private val metrics: PlaybackMetrics = PlaybackMetrics.NOOP,
+    phoneColoration: Boolean = false,
 ) {
+    private val coloration = if (phoneColoration) PhoneAudioColoration(sampleRate) else null
 
     private class QueuedPcm(val epoch: Long, val pcm: ByteArray, val turnStart: Boolean = false)
 
@@ -329,8 +331,9 @@ class PcmPlayer(
     }
 
     /** Non-blocking: AudioTrack is owned exclusively by pcm-playback. */
-    fun enqueue(pcm: ByteArray) {
-        if (!running || pcm.isEmpty()) return
+    fun enqueue(rawPcm: ByteArray) {
+        if (!running || rawPcm.isEmpty()) return
+        val pcm = coloration?.process(rawPcm) ?: rawPcm
         val current = queuedBytes.get()
         if (policy.action(current, pcm.size) == PlaybackQueueAction.WARN) {
             metrics.onOverflow()
@@ -372,6 +375,7 @@ class PcmPlayer(
     /** Immediately discard unsounded speech only on a real provider interruption. */
     fun flush() {
         val epoch = queueEpoch.incrementAndGet()
+        coloration?.reset()
         queue.clear()
         queuedBytes.set(0)
         nextEnqueueStartsTurn.set(true)
