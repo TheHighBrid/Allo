@@ -284,7 +284,7 @@ class LiveSessionStats(private val sessionStartedMs: Long) {
             append(",\"possiblyDroppedTurns\":").append(timing?.possiblyDroppedTurns)
             append(",\"droppedSpeechChunks\":").append(timing?.droppedSpeechChunks)
             append(",\"lastReconnectReadyMs\":").append(timing?.lastReconnectReadyMs)
-            append(",\"reconnectToFirstAudioMs\":").append(timing?.reconnectToFirstAudioMs)
+            append(",\"reconnectToFirstPacketMs\":").append(timing?.reconnectToFirstAudioMs)
             spans.forEach { (name, span) ->
                 append(',').append(LatencyStats.summarize(name, done.mapNotNull(span)))
             }
