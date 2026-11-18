@@ -183,6 +183,7 @@ class MemoryStore(context: Context) {
         candidateMemories: List<MemoryItem> = emptyList(),
         error: String? = null,
         startedAt: Long? = null,
+        followUpNotBefore: Long? = null,
     ) {
         val state = readState()
         val index = state.calls.indexOfLast { it.processing && (startedAt == null || it.startedAt == startedAt) }
@@ -196,6 +197,7 @@ class MemoryStore(context: Context) {
             highlights = highlights.cleanMemoryList(8),
             unresolvedTopics = unresolvedTopics.cleanMemoryList(8),
             followUp = followUp?.trim()?.take(500),
+            followUpNotBefore = followUpNotBefore?.takeIf { !followUp.isNullOrBlank() },
             memoryIds = memoryIds.distinct(),
             candidateMemories = candidateMemories
                 .map { it.copy(sourceCallId = old.id) }

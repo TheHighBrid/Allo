@@ -26,6 +26,7 @@ data class SettingsData(
     val earpieceFullDuplex: Boolean = false,
     val adaptiveTurns: Boolean = false,
     val phoneColoration: Boolean = false,
+    val reactiveListening: Boolean = false,
 )
 
 /**
@@ -178,6 +179,10 @@ class ConfigRepository(context: Context) {
     var phoneColoration: Boolean
         get() = prefs.getBoolean("phone_coloration", false)
         set(value) = prefs.edit().putBoolean("phone_coloration", value).apply()
+
+    var reactiveListening: Boolean
+        get() = prefs.getBoolean("reactive_listening", false)
+        set(value) = prefs.edit().putBoolean("reactive_listening", value).apply()
 
     private companion object {
         const val KEY_PROVIDER = "provider"
