@@ -101,7 +101,7 @@ fun InCallScreen(
 
         if (state.phase == CallPhase.ACTIVE) {
             Spacer(Modifier.height(10.dp))
-            ConnectionPill(connected = state.micStreaming, muted = state.isMuted)
+            ConnectionPill(connected = state.micStreaming && !state.reconnecting, muted = state.isMuted, reconnecting = state.reconnecting)
         }
 
         if (state.lastAgentText.isNotEmpty() && state.phase == CallPhase.ACTIVE) {
@@ -157,7 +157,7 @@ fun InCallScreen(
 }
 
 @Composable
-private fun ConnectionPill(connected: Boolean, muted: Boolean) {
+private fun ConnectionPill(connected: Boolean, muted: Boolean, reconnecting: Boolean = false) {
     val color = when {
         muted -> IOSColors.StatusYellow
         connected -> IOSColors.StatusGreen
@@ -166,6 +166,7 @@ private fun ConnectionPill(connected: Boolean, muted: Boolean) {
     val label = when {
         muted -> "Microphone muted"
         connected -> "Live audio"
+        reconnecting -> "Reconnecting audio"
         else -> "Connecting microphone"
     }
     Surface(color = Color.White.copy(alpha = 0.08f), shape = RoundedCornerShape(50)) {

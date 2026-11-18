@@ -164,6 +164,9 @@ class MicRecorder(
         return AudioRoutePolicy.allowsFullDuplex(type, speakerphoneOn)
     }
 
+    fun allowsReaction(): Boolean = AudioRoutePolicy.allowsReaction(
+        record?.routedDevice?.type, speakerphoneOn, aec?.enabled == true)
+
     fun stop() {
         running = false
         // AudioRecord.read() may block. Stopping the recorder first unblocks the
@@ -196,6 +199,7 @@ interface PlaybackMetrics {
     fun onUnderruns(delta: Int) {}
     /** An interruption flush has actually silenced the track. */
     fun onPlaybackStopped() {}
+    fun onPlaybackStopped(heardMs: Long?) { onPlaybackStopped() }
     companion object { val NOOP = object : PlaybackMetrics {} }
 }
 
@@ -223,9 +227,12 @@ internal object AudioPlaybackGate {
 class PcmPlayer(
     private val sampleRate: Int = AudioConfig.SAMPLE_RATE,
     private val metrics: PlaybackMetrics = PlaybackMetrics.NOOP,
+    phoneColoration: Boolean = false,
 ) {
+    private val coloration = if (phoneColoration) PhoneAudioColoration(sampleRate) else null
 
-    private class QueuedPcm(val epoch: Long, val pcm: ByteArray, val turnStart: Boolean = false)
+    private class QueuedPcm(val epoch: Long, val pcm: ByteArray, val turnStart: Boolean = false,
+                            val reaction: Boolean = false, val reportInterruption: Boolean = true)
 
     private var track: AudioTrack? = null
     private val queue = LinkedBlockingQueue<QueuedPcm>()
@@ -235,6 +242,7 @@ class PcmPlayer(
     private val policy = PlaybackQueuePolicy(sampleRate)
     @Volatile private var running = false
     private val nextEnqueueStartsTurn = AtomicBoolean(true)
+    private var reactionUntilNanos = 0L
     private var worker: Thread? = null
 
     fun start() {
@@ -291,6 +299,7 @@ class PcmPlayer(
                 }
                 val pcm = item.pcm
                 if (pcm.isEmpty()) {
+                    val heardMs = tracker.heardMs(headFrames(), sampleRate)
                     synchronized(trackLock) {
                         runCatching {
                             track?.pause()
@@ -299,13 +308,13 @@ class PcmPlayer(
                         }
                     }
                     tracker.reset(headFrames(), track?.underrunCount ?: 0)
-                    metrics.onPlaybackStopped()
+                    if (item.reportInterruption) metrics.onPlaybackStopped(heardMs)
                     continue
                 }
                 var written = 0
                 synchronized(trackLock) {
                     if (running && item.epoch == queueEpoch.get()) {
-                        tracker.beforeWrite(item.turnStart, track?.underrunCount ?: 0)
+                        if (!item.reaction) tracker.beforeWrite(item.turnStart, track?.underrunCount ?: 0)
                         written = writeFully(pcm, item.epoch)
                     }
                 }
@@ -329,8 +338,10 @@ class PcmPlayer(
     }
 
     /** Non-blocking: AudioTrack is owned exclusively by pcm-playback. */
-    fun enqueue(pcm: ByteArray) {
-        if (!running || pcm.isEmpty()) return
+    @Synchronized fun enqueue(rawPcm: ByteArray) {
+        if (!running || rawPcm.isEmpty()) return
+        cancelReaction()
+        val pcm = coloration?.process(rawPcm) ?: rawPcm
         val current = queuedBytes.get()
         if (policy.action(current, pcm.size) == PlaybackQueueAction.WARN) {
             metrics.onOverflow()
@@ -339,7 +350,15 @@ class PcmPlayer(
 
         // Claim the turn-start flag before reading the epoch: a racing flush then either discards
         // nothing we marked or re-arms the flag for the next packet.
-        var turnStart = nextEnqueueStartsTurn.getAndSet(false)
+        enqueueSlices(pcm, nextEnqueueStartsTurn.getAndSet(false), reaction = false)
+        val pendingMs = queuedDurationMs() + GeminiLiveTuning.OUTPUT_BUFFER_MS +
+            GeminiLiveTuning.PLAYBACK_TAIL_GUARD_MS
+        AudioPlaybackGate.holdFor(pendingMs)
+        metrics.onQueued(queuedDurationMs())
+    }
+
+    private fun enqueueSlices(pcm: ByteArray, startsTurn: Boolean, reaction: Boolean) {
+        var turnStart = startsTurn
         val epoch = queueEpoch.get()
         val writeBytes = sampleRate * GeminiLiveTuning.PLAYBACK_WRITE_CHUNK_MS /
             1_000 * AudioConfig.BYTES_PER_SAMPLE
@@ -348,37 +367,62 @@ class PcmPlayer(
         // needless copyOfRange slicing.
         if (pcm.size <= writeBytes) {
             queuedBytes.addAndGet(pcm.size)
-            queue.offer(QueuedPcm(epoch, pcm.copyOf(), turnStart))
+            queue.offer(QueuedPcm(epoch, pcm.copyOf(), turnStart, reaction))
         } else {
             var offset = 0
             while (offset < pcm.size) {
                 val end = minOf(offset + writeBytes, pcm.size)
                 val size = end - offset
                 queuedBytes.addAndGet(size)
-                queue.offer(QueuedPcm(epoch, pcm.copyOfRange(offset, end), turnStart))
+                queue.offer(QueuedPcm(epoch, pcm.copyOfRange(offset, end), turnStart, reaction))
                 turnStart = false
                 offset = end
             }
         }
 
-        val pendingMs = queuedDurationMs() + GeminiLiveTuning.OUTPUT_BUFFER_MS +
+    }
+
+    /** A local reaction never creates a provider turn or competes with queued agent speech. */
+    @Synchronized fun tryEnqueueReaction(pcm: ByteArray): Boolean {
+        if (!running || pcm.isEmpty() || queuedBytes.get() > 0 || AudioPlaybackGate.isBlocked()) return false
+        enqueueSlices(pcm, startsTurn = false, reaction = true)
+        val durationMs = policy.durationMs(pcm.size) + GeminiLiveTuning.OUTPUT_BUFFER_MS +
             GeminiLiveTuning.PLAYBACK_TAIL_GUARD_MS
-        AudioPlaybackGate.holdFor(pendingMs)
-        metrics.onQueued(queuedDurationMs())
+        reactionUntilNanos = System.nanoTime() + durationMs * 1_000_000L
+        AudioPlaybackGate.holdFor(durationMs)
+        return true
+    }
+
+    @Synchronized fun cancelReaction() {
+        if (reactionUntilNanos == 0L) return
+        val active = System.nanoTime() < reactionUntilNanos
+        reactionUntilNanos = 0L
+        if (active) flushInternal(reportInterruption = false)
     }
 
     fun queuedDurationMs(): Int = policy.durationMs(queuedBytes.get())
 
     /** Immediately discard unsounded speech only on a real provider interruption. */
-    fun flush() {
+    @Synchronized fun flush() {
+        reactionUntilNanos = 0L
+        flushInternal(reportInterruption = true)
+    }
+
+    @Synchronized fun discardPendingPlayback() {
+        reactionUntilNanos = 0L
+        flushInternal(reportInterruption = false)
+    }
+
+    private fun flushInternal(reportInterruption: Boolean) {
         val epoch = queueEpoch.incrementAndGet()
+        coloration?.reset()
         queue.clear()
         queuedBytes.set(0)
         nextEnqueueStartsTurn.set(true)
         AudioPlaybackGate.clear()
         // A command is consumed by the audio worker; WebSocket callbacks never
         // wait for a possibly-blocking AudioTrack write to release trackLock.
-        if (running) queue.offer(QueuedPcm(epoch, ByteArray(0)))
+        if (running) queue.offer(QueuedPcm(epoch, ByteArray(0), reportInterruption = reportInterruption))
     }
 
     fun stop() {
@@ -441,6 +485,7 @@ class PcmPlayer(
 internal class PlaybackTurnTracker(private val metrics: PlaybackMetrics) {
     private var writtenFrames = 0L
     private var turnStartFrame = -1L
+    private var lastTurnStartFrame = -1L
     private var lastUnderruns = 0
 
     val awaitingHeadAdvance: Boolean get() = turnStartFrame >= 0
@@ -449,12 +494,21 @@ internal class PlaybackTurnTracker(private val metrics: PlaybackMetrics) {
     fun reset(headFrames: Long, underruns: Int) {
         writtenFrames = headFrames
         turnStartFrame = -1L
+        lastTurnStartFrame = -1L
         lastUnderruns = underruns
+    }
+
+    fun heardMs(headFrames: Long, rate: Int): Long? {
+        if (lastTurnStartFrame < 0 || rate <= 0) return null
+        val frames = (headFrames - lastTurnStartFrame).coerceIn(0L,
+            (writtenFrames - lastTurnStartFrame).coerceAtLeast(0L))
+        return frames * 1000L / rate
     }
 
     fun beforeWrite(turnStart: Boolean, underruns: Int) {
         if (turnStart) {
             turnStartFrame = writtenFrames
+            lastTurnStartFrame = writtenFrames
         } else if (underruns > lastUnderruns) {
             metrics.onUnderruns(underruns - lastUnderruns)
         }

@@ -12,6 +12,17 @@ class LiveLatencyTelemetryTest {
     private fun telemetry() = LiveTurnTelemetry(enabled = false, clockMs = { now })
 
     @Test
+    fun lateHardwareFlushUpdatesCompletedTurnInsteadOfNextTurn() {
+        val t = telemetry()
+        now = 100; t.interrupted()
+        now = 110; t.complete("headset", 1000)
+        now = 130; t.playback.onPlaybackStopped(50L)
+        assertNull(t.currentMetrics().playbackStoppedMs)
+        val summary = JSONObject(t.session.summary("gemini", null))
+        assertEquals(30L, summary.getJSONObject("interruptToPlaybackStopMs").getLong("p50"))
+    }
+
+    @Test
     fun replyLatencyRunsFromSpeechEndToFirstAudibleSample() {
         val t = telemetry()
         t.localSpeechStart(atMs = 100)

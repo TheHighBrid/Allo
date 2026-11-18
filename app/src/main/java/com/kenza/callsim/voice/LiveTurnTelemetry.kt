@@ -60,6 +60,14 @@ data class LiveProviderTimingSnapshot(
     val interruptedMs: Long? = null,
     val teardownStartedMs: Long? = null,
     val teardownCompleteMs: Long? = null,
+    val goAwayCount: Int = 0,
+    val reconnectAttempts: Int = 0,
+    val reconnectSuccesses: Int = 0,
+    val reconnectFailures: Int = 0,
+    val possiblyDroppedTurns: Int = 0,
+    val droppedSpeechChunks: Int = 0,
+    val lastReconnectReadyMs: Long? = null,
+    val reconnectToFirstAudioMs: Long? = null,
 ) {
     fun connectionToReadyMs(): Long? = duration(connectionStartedMs, sessionReadyMs)
     fun finalizedToFirstAudioMs(): Long? = duration(speechFinalizedMs, firstAudioMs)
@@ -80,6 +88,9 @@ class LiveProviderTiming(
 ) {
     @Volatile private var state = LiveProviderTimingSnapshot()
     @Volatile private var firstAudioRecorded = false
+    private var reconnectStartedAt: Long? = null
+    private var reconnectAwaitingAudio = false
+    private var lastReadyReconnectStart: Long? = null
 
     @Synchronized fun connectionStarted() {
         firstAudioRecorded = false
@@ -104,6 +115,10 @@ class LiveProviderTiming(
     }
 
     @Synchronized fun firstAudio() {
+        if (reconnectAwaitingAudio) {
+            state = state.copy(reconnectToFirstAudioMs = lastReadyReconnectStart?.let { clockMs() - it })
+            reconnectAwaitingAudio = false
+        }
         if (firstAudioRecorded) return
         firstAudioRecorded = true
         state = state.copy(firstAudioMs = clockMs())
@@ -113,6 +128,34 @@ class LiveProviderTiming(
     @Synchronized fun interrupted() {
         state = state.copy(interruptedMs = clockMs())
         emit("interrupted")
+    }
+
+    @Synchronized fun goAway() { state = state.copy(goAwayCount = state.goAwayCount + 1) }
+
+    @Synchronized fun reconnectStarted(atRisk: Boolean) {
+        if (reconnectStartedAt == null) reconnectStartedAt = clockMs()
+        state = state.copy(reconnectAttempts = state.reconnectAttempts + 1,
+            possiblyDroppedTurns = state.possiblyDroppedTurns + if (atRisk) 1 else 0)
+        reconnectAwaitingAudio = false
+    }
+
+    @Synchronized fun reconnectReady() {
+        val started = reconnectStartedAt ?: return
+        state = state.copy(reconnectSuccesses = state.reconnectSuccesses + 1,
+            lastReconnectReadyMs = clockMs() - started)
+        lastReadyReconnectStart = started
+        reconnectStartedAt = null
+        reconnectAwaitingAudio = true
+    }
+
+    @Synchronized fun reconnectFailed() {
+        state = state.copy(reconnectFailures = state.reconnectFailures + 1)
+        reconnectStartedAt = null
+        reconnectAwaitingAudio = false
+    }
+
+    @Synchronized fun droppedSpeechChunk() {
+        state = state.copy(droppedSpeechChunks = state.droppedSpeechChunks + 1)
     }
 
     @Synchronized fun teardownStarted() {
@@ -160,6 +203,7 @@ data class LiveTurnMetrics(
     val bargeInStartMs: Long? = null,
     val interruptionReceivedMs: Long? = null,
     val playbackStoppedMs: Long? = null,
+    val heardBeforeInterruptMs: Long? = null,
 ) {
     /** Local end of speech to Kenza's first audible sample: the latency the caller feels. */
     fun speechEndToPlaybackMs(): Long? = span(localSpeechEndMs, firstPlaybackHeadAdvanceMs)
@@ -204,6 +248,14 @@ class LiveSessionStats(private val sessionStartedMs: Long) {
         if (turns.size > MAX_SUMMARY_TURNS) turns.removeAt(0)
     }
 
+    /** A hardware flush may finish after turnComplete. Attach it to the original turn. */
+    @Synchronized fun recordLatePlaybackStop(atMs: Long, heardMs: Long?): Boolean {
+        val index = turns.indexOfLast { it.interruptionReceivedMs != null && it.playbackStoppedMs == null }
+        if (index < 0) return false
+        turns[index] = turns[index].copy(playbackStoppedMs = atMs, heardBeforeInterruptMs = heardMs)
+        return true
+    }
+
     /**
      * Content-free per-session latency summary (P50/P95 over completed turns) plus the provider's
      * connection/teardown timings.
@@ -225,6 +277,14 @@ class LiveSessionStats(private val sessionStartedMs: Long) {
             append(",\"startToFirstPlaybackMs\":").append(startToFirstPlayback)
             append(",\"connectionToReadyMs\":").append(timing?.connectionToReadyMs())
             append(",\"teardownMs\":").append(timing?.teardownDurationMs())
+            append(",\"goAwayCount\":").append(timing?.goAwayCount)
+            append(",\"reconnectAttempts\":").append(timing?.reconnectAttempts)
+            append(",\"reconnectSuccesses\":").append(timing?.reconnectSuccesses)
+            append(",\"reconnectFailures\":").append(timing?.reconnectFailures)
+            append(",\"possiblyDroppedTurns\":").append(timing?.possiblyDroppedTurns)
+            append(",\"droppedSpeechChunks\":").append(timing?.droppedSpeechChunks)
+            append(",\"lastReconnectReadyMs\":").append(timing?.lastReconnectReadyMs)
+            append(",\"reconnectToFirstPacketMs\":").append(timing?.reconnectToFirstAudioMs)
             spans.forEach { (name, span) ->
                 append(',').append(LatencyStats.summarize(name, done.mapNotNull(span)))
             }
@@ -274,11 +334,15 @@ class LiveTurnTelemetry(
             if (delta > 0) update { it.copy(underrunsDelta = it.underrunsDelta + delta) }
         }
 
-        override fun onPlaybackStopped() = update {
-            if (it.interruptionReceivedMs != null && it.playbackStoppedMs == null) {
-                it.copy(playbackStoppedMs = clockMs())
-            } else {
-                it
+        override fun onPlaybackStopped() = onPlaybackStopped(null)
+
+        override fun onPlaybackStopped(heardMs: Long?) {
+            synchronized(this@LiveTurnTelemetry) {
+                val now = clockMs()
+                if (session.recordLatePlaybackStop(now, heardMs)) return
+                if (current.interruptionReceivedMs != null && current.playbackStoppedMs == null) {
+                    current = current.copy(playbackStoppedMs = now, heardBeforeInterruptMs = heardMs)
+                }
             }
         }
 
@@ -450,6 +514,7 @@ internal object LiveTurnJson {
             "bargeInStartMs" to m.bargeInStartMs,
             "interruptionReceivedMs" to m.interruptionReceivedMs,
             "playbackStoppedMs" to m.playbackStoppedMs,
+            "heardBeforeInterruptMs" to m.heardBeforeInterruptMs,
             "speechEndToPlaybackMs" to m.speechEndToPlaybackMs(),
             "speechEndToFirstPacketMs" to m.speechEndToFirstPacketMs(),
             "bargeInToInterruptMs" to m.bargeInToInterruptMs(),
@@ -503,9 +568,9 @@ class TranscriptAssembler {
     fun appendUser(fragment: String) = append(user, fragment)
     fun appendAgent(fragment: String) = append(agent, fragment)
 
-    fun commit(): List<Pair<String, String>> = buildList {
+    fun commit(includeAgent: Boolean = true): List<Pair<String, String>> = buildList {
         user.toString().trim().takeIf(String::isNotEmpty)?.let { add("user" to it) }
-        agent.toString().trim().takeIf(String::isNotEmpty)?.let { add("agent" to it) }
+        if (includeAgent) agent.toString().trim().takeIf(String::isNotEmpty)?.let { add("agent" to it) }
         this@TranscriptAssembler.clear()
     }
 

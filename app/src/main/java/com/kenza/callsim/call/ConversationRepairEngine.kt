@@ -23,6 +23,11 @@ internal class ConversationRepairEngine {
     private var pendingQuestion: String? = null
     private var recoveryIssued = false
     private var ignoreNextAgentTurn = false
+    private var awaitingInterruptionText = false
+    var lastInterruption: InterruptionKind? = null
+        private set
+
+    fun consumeInterruptionKind(): InterruptionKind? = lastInterruption.also { lastInterruption = null }
 
     fun onAgentText(fragment: String) {
         agentTurnText = appendFragment(agentTurnText, fragment)
@@ -47,6 +52,10 @@ internal class ConversationRepairEngine {
     }
 
     fun onUserText(text: String): ConversationRepairAction? {
+        if (awaitingInterruptionText && text.isNotBlank()) {
+            lastInterruption = InterruptionClassifier.classify(text)
+            awaitingInterruptionText = false
+        }
         val question = pendingQuestion ?: return null
 
         if (ConversationEndDetector.isFarewell(text) || ConversationEndDetector.isAngryHangup(text)) {
@@ -98,7 +107,18 @@ internal class ConversationRepairEngine {
         return null
     }
 
+    /** A cut-off question is not a question the caller has certainly heard. */
+    fun onInterrupted() {
+        awaitingInterruptionText = true
+        lastInterruption = null
+        agentTurnText = ""
+        pendingQuestion = null
+        recoveryIssued = false
+    }
+
     fun clear() {
+        awaitingInterruptionText = false
+        lastInterruption = null
         agentTurnText = ""
         pendingQuestion = null
         recoveryIssued = false

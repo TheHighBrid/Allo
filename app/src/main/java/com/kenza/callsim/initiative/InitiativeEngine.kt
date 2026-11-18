@@ -156,7 +156,7 @@ object InitiativeEngine {
         calls.forEachIndexed { callIndex, call ->
             val ageDays = ((now - call.startedAt).coerceAtLeast(0) / DAY_MS.toDouble()).roundToInt()
             val recency = (10 - ageDays.coerceAtMost(10)).coerceAtLeast(0)
-            call.followUp?.clean()?.takeIf { it.isNotBlank() }?.let { text ->
+            call.followUp?.clean()?.takeIf { it.isNotBlank() && (call.followUpNotBefore ?: 0L) <= now }?.let { text ->
                 out += InitiativeSeed(
                     token = token("follow", call.id, text),
                     kind = InitiativeKind.FOLLOW_UP,
@@ -166,7 +166,8 @@ object InitiativeEngine {
             }
             call.unresolvedTopics.take(4).forEach { topic ->
                 val clean = topic.clean()
-                if (clean.isNotBlank()) {
+                if (clean.isNotBlank() && !(call.followUpNotBefore?.let { it > now } == true &&
+                        call.followUp?.let { MemoryPolicy.isNearDuplicate(it, clean) } == true)) {
                     out += InitiativeSeed(
                         token = token("unresolved", call.id, clean),
                         kind = InitiativeKind.UNRESOLVED_TOPIC,
