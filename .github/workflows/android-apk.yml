@@ -60,6 +60,16 @@ jobs:
 
       # Ordinary pushes and PRs validate without release secrets. A manual
       # dispatch is the explicit, auditable operation that publishes a release.
+      # The November Compose BOM requires Android API 37.1. Runner images
+      # are not guaranteed to include this minor Android SDK release.
+      - name: Install Android SDK 37.1
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          printf 'y\n' | "$SDKMANAGER" --install "platforms;android-37.1"
+          test -f "$ANDROID_HOME/platforms/android-37.1/android.jar"
+
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
