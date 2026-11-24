@@ -416,7 +416,24 @@ class GeminiLiveProvider(
         runCatching { previous?.cancel() }
         thread(name = "gemini-reconnect") {
             if (delayMs > 0) Thread.sleep(delayMs)
-            if (isLifecycleActive(lifecycle)) connect(resuming = resuming, lifecycle = lifecycle)
+            if (!isLifecycleActive(lifecycle)) return@thread
+
+            // Broker tokens authorize new WebSocket connections only for a short time.
+            // Each rotation needs a newly issued token; the latest session resumption
+            // handle is retained separately so the conversation can continue.
+            if (tokenBrokerUrl.isNotBlank()) {
+                val refreshedToken = fetchEphemeralToken()
+                if (!isLifecycleActive(lifecycle)) return@thread
+                if (refreshedToken.isNullOrBlank()) {
+                    if (resuming) timing.reconnectFailed()
+                    listener.onClosed("Ephemeral token refresh failed.", fatal = false)
+                    return@thread
+                }
+                sessionEphemeralToken = refreshedToken
+                connect(resuming = resuming, ephemeralToken = refreshedToken, lifecycle = lifecycle)
+            } else {
+                connect(resuming = resuming, lifecycle = lifecycle)
+            }
         }
     }
 

@@ -94,8 +94,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingStartAfterPermission = false
 
     private var userEnded = false
-    private var reconnectAttempts = 0
-    private val maxConsecutiveReconnects = 4
+    private val reconnectBudget = CallReconnectBudget()
     private var hadUserInteraction = false
 
     private var elevenCreds: List<Pair<String, String>> = emptyList()
@@ -163,7 +162,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun beginConnecting() {
         userEnded = false
-        reconnectAttempts = 0
+        reconnectBudget.reset()
         hadUserInteraction = false
         initiativeOpeningSent = false
         openingHeardThisCall = false
@@ -235,6 +234,8 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
             }
             override fun onReady(outputSampleRate: Int) {
                 if (sessionEpoch != voiceSessionEpoch || userEnded) return
+                // A successful fresh-session recovery starts a new consecutive-failure window.
+                reconnectBudget.reset()
                 if (player == null) {
                     reactions = if (config.reactiveListening) ReactiveListening(outputSampleRate) else null
                     player = PcmPlayer(outputSampleRate, telemetry.playback, config.phoneColoration).also { it.start() }
@@ -567,9 +568,13 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun handleDisconnect(message: String, fatal: Boolean) {
         if (userEnded || callStartedAt == 0L) return
-        if (!fatal && hadUserInteraction && reconnectAttempts < maxConsecutiveReconnects) {
+        if (!fatal && hadUserInteraction) {
             if (reconnectJob?.isActive == true) return
-            reconnectAttempts++
+            val retryDelayMs = reconnectBudget.nextDelayMs()
+            if (retryDelayMs == null) {
+                finishCall(message)
+                return
+            }
             voiceSessionEpoch++
             _state.update { it.copy(reconnecting = true, activity = AgentActivity.LISTENING, micStreaming = false) }
             reconnectJob = viewModelScope.launch {
@@ -579,7 +584,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
                 client?.stop(); client = null
                 transcript += transcriptAssembler.commit(includeAgent = false)
                 conversationRepair.onInterrupted()
-                delay(250L * (1L shl (reconnectAttempts - 1)))
+                delay(retryDelayMs)
                 if (!userEnded && callStartedAt > 0) startVoiceSession()
             }
             return
@@ -588,7 +593,7 @@ class CallViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun reconnectContext(): String {
-        if (reconnectAttempts == 0) return ""
+        if (reconnectBudget.attempts == 0) return ""
         val recent = transcript.takeLast(12).joinToString("\n") { (role, text) ->
             "${role}: ${text.take(400)}"
         }.takeLast(3_000)

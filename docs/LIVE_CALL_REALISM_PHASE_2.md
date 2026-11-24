@@ -18,3 +18,10 @@ The existing provider already sets public v1beta contextWindowCompression.slidin
 5. Confirm a dated follow-up cannot trigger the matched initiative cue prematurely.
 
 Do not interpret synthetic tests as proof of subjective voice realism or of unlimited call duration.
+- Broker-authenticated Gemini reconnects now obtain a fresh ephemeral token per new WebSocket while retaining the latest resumable session handle; broker failure falls back through the existing bounded app recovery instead of reusing an expired token. This adds one broker request per rotation and requires broker availability.
+- Fresh-session recovery retries now count consecutive failures, not total failures across the lifetime of a call. A confirmed ready event resets the four-attempt budget; tests cover exhaustion and reset.
+
+## Additional validation
+
+6. With a token broker, keep a call beyond 30 minutes and confirm that multiple GoAway rotations use refreshed tokens without an unsolicited new greeting. Broker refresh failure must surface recoverably, not spin or silently reuse a stale token.
+7. Recover successfully from multiple spaced-out transport losses, then trigger another failure. Each successful reconnection must restore the four-attempt budget; four consecutive failed recoveries must still stop safely.
