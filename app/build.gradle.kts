@@ -47,7 +47,13 @@ val buildVersionName = providers.gradleProperty("ALLO_VERSION_NAME")
 
 android {
     namespace = "com.kenza.callsim"
-    compileSdk = 37
+    // Compose 1.13.0 requires Android API 37.1 or newer for compilation.
+    // minSdk and targetSdk are unchanged.
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 1
+        }
+    }
 
     defaultConfig {
         applicationId = "com.kenza.callsim"
@@ -109,7 +115,7 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.19.1")
