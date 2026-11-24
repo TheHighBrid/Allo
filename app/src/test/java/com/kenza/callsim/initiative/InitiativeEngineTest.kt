@@ -15,6 +15,19 @@ import java.util.Calendar
 class InitiativeEngineTest {
 
     @Test
+    fun timeBoundHookCannotBeSelectedBeforeItsDueTime() {
+        val now = at(hour = 19, day = 7)
+        val hook = "Ask how the presentation went"
+        val call = CallSummary("timed", now - DAY_MS, now - DAY_MS + 60_000,
+            "Planned a presentation", followUp = hook, unresolvedTopics = listOf(hook),
+            followUpNotBefore = now + 60_000)
+        val snap = MemorySnapshot(calls = listOf(call))
+        val early = InitiativeEngine.bestSeed(snap, now)
+        assertFalse(early?.kind == InitiativeKind.FOLLOW_UP || early?.kind == InitiativeKind.UNRESOLVED_TOPIC)
+        assertEquals(InitiativeKind.FOLLOW_UP, InitiativeEngine.bestSeed(snap, now + 60_000)?.kind)
+    }
+
+    @Test
     fun recentFollowUpCanEarnAnEveningCall() {
         val now = at(hour = 19, day = 7)
         val previous = CallSummary(

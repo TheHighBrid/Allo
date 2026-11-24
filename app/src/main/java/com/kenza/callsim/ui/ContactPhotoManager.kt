@@ -9,20 +9,13 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.RectF
 import android.net.Uri
-import android.os.Build
 import android.provider.ContactsContract
-import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.core.graphics.drawable.toBitmap
-import coil.ImageLoader
-import coil.request.ImageRequest
-import coil.request.SuccessResult
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Manages contact photos with iOS-style avatar generation.
@@ -31,17 +24,15 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ContactPhotoManager(
     private val context: Context,
-    private val imageLoader: ImageLoader,
 ) {
     
     companion object {
-        private const val TAG = "ContactPhotoManager"
         private const val DEFAULT_AVATAR_SIZE = 256
         private const val CACHE_SIZE = 100
     }
     
     // Memory cache for contact photos
-    private val photoCache = ConcurrentHashMap<String, ImageBitmap?>(CACHE_SIZE.toInt())
+    private val photoCache = ConcurrentHashMap<String, ImageBitmap>(CACHE_SIZE.toInt())
     
     // Color palette for initial avatars (iOS-style)
     private val avatarColors = listOf(
@@ -93,7 +84,6 @@ class ContactPhotoManager(
             return avatar
         }
         
-        photoCache[cacheKey] = null
         return null
     }
     
@@ -139,16 +129,11 @@ class ContactPhotoManager(
             contactId
         )
         
-        val request = ImageRequest.Builder(context)
-            .data(photoUri)
-            .size(size)
-            .build()
-        
-        val result = imageLoader.execute(request)
-        if (result is SuccessResult) {
-            result.drawable.toBitmap(size, size)
-        } else {
-            null
+        withContext(Dispatchers.IO) {
+            val bitmap = ContactsContract.Contacts.openContactPhotoInputStream(
+                context.contentResolver, photoUri, true,
+            )?.use { BitmapFactory.decodeStream(it) }
+            bitmap?.let { Bitmap.createScaledBitmap(it, size, size, true) }
         }
     }.getOrNull()
     
@@ -324,7 +309,7 @@ class ContactPhotoManager(
      * Clear cache for a specific contact.
      */
     fun clearCache(contactName: String, phoneNumber: String? = null) {
-        val cacheKey = "${contactName}_${phoneNumber}_*"
+        val cacheKey = "${contactName}_${phoneNumber}_"
         photoCache.keys.removeIf { it.startsWith(cacheKey) }
     }
     

@@ -78,6 +78,7 @@ data class CallSummary(
     val candidateMemories: List<MemoryItem> = emptyList(),
     val processing: Boolean = false,
     val processingError: String? = null,
+    val followUpNotBefore: Long? = null,
 ) {
     val durationSeconds: Long get() = ((endedAt - startedAt) / 1000L).coerceAtLeast(0)
 
@@ -90,6 +91,7 @@ data class CallSummary(
         put("highlights", JSONArray(highlights))
         put("unresolvedTopics", JSONArray(unresolvedTopics))
         followUp?.let { put("followUp", it) }
+        followUpNotBefore?.let { put("followUpNotBefore", it) }
         put("memoryIds", JSONArray(memoryIds))
         put("candidateMemories", JSONArray().also { array -> candidateMemories.forEach { array.put(it.toJson()) } })
         put("processing", processing)
@@ -110,6 +112,7 @@ data class CallSummary(
             candidateMemories = o.optJSONArray("candidateMemories").asObjects(MemoryItem::fromJson),
             processing = o.optBoolean("processing", false),
             processingError = o.optString("processingError").takeIf { it.isNotBlank() },
+            followUpNotBefore = o.optLong("followUpNotBefore").takeIf { it > 0L },
         )
     }
 }

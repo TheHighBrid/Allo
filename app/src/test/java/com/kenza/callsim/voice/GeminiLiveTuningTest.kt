@@ -26,6 +26,6 @@ class GeminiLiveTuningTest {
     @Test
     fun playbackWriteChunksStayInterruptFriendly() {
         assertTrue(GeminiLiveTuning.PLAYBACK_WRITE_CHUNK_MS in 10..40)
-        assertTrue(GeminiLiveTuning.VAD_SILENCE_DURATION_MS == 600)
+        assertEquals(800, GeminiLiveTuning.VAD_SILENCE_DURATION_MS)
     }
 }

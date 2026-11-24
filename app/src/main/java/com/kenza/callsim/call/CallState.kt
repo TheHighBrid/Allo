@@ -26,5 +26,6 @@ data class CallUiState(
     val lastAgentText: String = "",
     val lastUserText: String = "",
     val errorMessage: String? = null,
-    val isConfigured: Boolean = false
+    val isConfigured: Boolean = false,
+    val reconnecting: Boolean = false,
 )
