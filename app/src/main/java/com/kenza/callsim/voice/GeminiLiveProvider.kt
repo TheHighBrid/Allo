@@ -416,25 +416,27 @@ class GeminiLiveProvider(
         runCatching { previous?.cancel() }
         thread(name = "gemini-reconnect") {
             if (delayMs > 0) Thread.sleep(delayMs)
-            if (!isLifecycleActive(lifecycle)) return@thread
-
-            // Broker tokens authorize new WebSocket connections only for a short time.
-            // Each rotation needs a newly issued token; the latest session resumption
-            // handle is retained separately so the conversation can continue.
-            if (tokenBrokerUrl.isNotBlank()) {
-                val refreshedToken = fetchEphemeralToken()
-                if (!isLifecycleActive(lifecycle)) return@thread
-                if (refreshedToken.isNullOrBlank()) {
-                    if (resuming) timing.reconnectFailed()
-                    listener.onClosed("Ephemeral token refresh failed.", fatal = false)
-                    return@thread
-                }
-                sessionEphemeralToken = refreshedToken
-                connect(resuming = resuming, ephemeralToken = refreshedToken, lifecycle = lifecycle)
-            } else {
-                connect(resuming = resuming, lifecycle = lifecycle)
-            }
+            reconnectWithFreshAuthentication(resuming, lifecycle)
         }
+    }
+
+    private fun reconnectWithFreshAuthentication(resuming: Boolean, lifecycle: Long) {
+        if (!isLifecycleActive(lifecycle)) return
+        if (tokenBrokerUrl.isBlank()) {
+            connect(resuming = resuming, lifecycle = lifecycle)
+            return
+        }
+        // Broker tokens authorize new WebSocket connections only for a short time.
+        // Retain the resumable handle, but fetch fresh authentication for every rotation.
+        val refreshedToken = fetchEphemeralToken()
+        if (!isLifecycleActive(lifecycle)) return
+        if (refreshedToken.isNullOrBlank()) {
+            if (resuming) timing.reconnectFailed()
+            listener.onClosed("Ephemeral token refresh failed.", fatal = false)
+            return
+        }
+        sessionEphemeralToken = refreshedToken
+        connect(resuming = resuming, ephemeralToken = refreshedToken, lifecycle = lifecycle)
     }
 
     private fun isCurrent(connectionId: Int): Boolean = activeConnectionId == connectionId
