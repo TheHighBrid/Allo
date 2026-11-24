@@ -42,6 +42,7 @@ class MemorySerializationTest {
             highlights = listOf("Weekend planning", "Restaurant preference"),
             unresolvedTopics = listOf("Choose hotel"),
             followUp = "Ask which hotel area feels best.",
+            followUpNotBefore = 70_000L,
             memoryIds = listOf("durable-1"),
             candidateMemories = listOf(candidate),
             processing = false,

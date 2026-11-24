@@ -12,6 +12,11 @@ object AudioRoutePolicy {
      */
     @Volatile var earpieceFullDuplexEnabled: Boolean = false
 
+    /** Experimental reactions require a physically separate input and verified AEC. */
+    fun allowsReaction(inputDeviceType: Int?, speakerphoneOn: Boolean, aecEnabled: Boolean): Boolean =
+        aecEnabled && inputDeviceType != AudioDeviceInfo.TYPE_BUILTIN_MIC &&
+            allowsFullDuplex(inputDeviceType, speakerphoneOn)
+
     fun allowsFullDuplex(inputDeviceType: Int?, speakerphoneOn: Boolean): Boolean {
         if (speakerphoneOn || inputDeviceType == null) return false
         return when (inputDeviceType) {

@@ -15,6 +15,16 @@ class PlaybackTurnTrackerTest {
     }
 
     @Test
+    fun cutoffUsesFramesAndRemainsAvailableAfterFirstSample() {
+        val tracker = PlaybackTurnTracker(Recorder())
+        tracker.reset(1000, 0)
+        tracker.beforeWrite(true, 0)
+        tracker.afterWrite(2400, 2200)
+        assertEquals(50L, tracker.heardMs(2200, 24000))
+        assertEquals(100L, tracker.heardMs(5000, 24000))
+    }
+
+    @Test
     fun reportsHeadAdvanceOncePerTurnAfterItsFirstSample() {
         val recorder = Recorder()
         val tracker = PlaybackTurnTracker(recorder)

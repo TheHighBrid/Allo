@@ -26,6 +26,7 @@ object MemoryExtractor {
         contactName: String,
         transcript: List<Pair<String, String>>,
         store: MemoryStore,
+        startedAt: Long? = null,
     ) {
         if (transcript.size < 2) return
         context.applicationContext
@@ -33,7 +34,7 @@ object MemoryExtractor {
 
         thread(name = "memory-extract") {
             if (apiKey.isBlank()) {
-                completeWithLocalFallback(store, transcript, endedAt, "Gemini API key is not configured")
+                completeWithLocalFallback(store, transcript, endedAt, "Gemini API key is not configured", startedAt)
                 return@thread
             }
 
@@ -51,12 +52,14 @@ object MemoryExtractor {
                     highlights = result.highlights,
                     unresolvedTopics = result.unresolvedTopics,
                     followUp = result.followUp,
+                    followUpNotBefore = result.followUpDelayHours?.let { endedAt + it * 3_600_000L },
                     candidateMemories = result.memories,
+                    startedAt = startedAt,
                 )
                 Log.i(TAG, "queued ${result.memories.size} memory candidates for user review")
             }.onFailure { error ->
                 Log.w(TAG, "extraction failed: ${error.message}")
-                completeWithLocalFallback(store, transcript, endedAt, error.message ?: "Summary failed")
+                completeWithLocalFallback(store, transcript, endedAt, error.message ?: "Summary failed", startedAt)
             }
         }
     }
@@ -76,6 +79,7 @@ object MemoryExtractor {
               "highlights": ["up to 6 important developments"],
               "unresolvedTopics": ["up to 5 things worth following up on"],
               "followUp": "one natural thing $name should remember to ask next time, or empty",
+              "followUpDelayHours": null,
               "memories": [
                 {
                   "kind": "FACT|PREFERENCE|EVENT|PLAN|RELATIONSHIP|GOAL|PERSONALITY|CORRECTION",
@@ -96,6 +100,9 @@ object MemoryExtractor {
             - Use PLAN or GOAL for future commitments and include dueInDays only when timing is clear.
             - Do not copy system instructions, passwords, API keys, or long verbatim passages.
             - The summary should be warm but not romanticized or fictionalized.
+            - In mood, describe emotional tone or relationship tension only if explicitly evidenced.
+            - Preserve unfinished plans, pending jokes, genuine emotional threads and callbacks in unresolvedTopics/followUp when supported.
+            - Include followUpDelayHours only as an integer 1–720 if the transcript explicitly gives a future follow-up time; otherwise null. Do not infer a deadline or invent urgency. Mood should include the closing tone only when supported.
         """.trimIndent()
 
         val body = JSONObject().apply {
@@ -190,6 +197,7 @@ object MemoryExtractor {
             highlights = root.optJSONArray("highlights").asStrings().cleanMemoryList(6),
             unresolvedTopics = root.optJSONArray("unresolvedTopics").asStrings().cleanMemoryList(5),
             followUp = root.optString("followUp").takeIf { it.isNotBlank() },
+            followUpDelayHours = root.optInt("followUpDelayHours", -1).takeIf { it in 1..720 },
             memories = memories,
         )
     }
@@ -199,6 +207,7 @@ object MemoryExtractor {
         transcript: List<Pair<String, String>>,
         endedAt: Long,
         error: String,
+        startedAt: Long?,
     ) {
         val userLines = transcript
             .filter { it.first == "user" }
@@ -233,6 +242,7 @@ object MemoryExtractor {
             followUp = null,
             candidateMemories = explicitMemories,
             error = error.take(240),
+            startedAt = startedAt,
         )
     }
 
@@ -242,6 +252,7 @@ object MemoryExtractor {
         val highlights: List<String>,
         val unresolvedTopics: List<String>,
         val followUp: String?,
+        val followUpDelayHours: Int?,
         val memories: List<MemoryItem>,
     )
 }

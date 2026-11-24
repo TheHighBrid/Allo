@@ -68,6 +68,9 @@ fun SettingsScreen(
     var userCity by remember { mutableStateOf(initial.userCity) }
     var weatherKey by remember { mutableStateOf(initial.weatherApiKey) }
     var earpieceFullDuplex by remember { mutableStateOf(initial.earpieceFullDuplex) }
+    var adaptiveTurns by remember { mutableStateOf(initial.adaptiveTurns) }
+    var phoneColoration by remember { mutableStateOf(initial.phoneColoration) }
+    var reactiveListening by remember { mutableStateOf(initial.reactiveListening) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -172,6 +175,25 @@ fun SettingsScreen(
             earpieceFullDuplex,
         ) { earpieceFullDuplex = it }
 
+        if (provider == ProviderType.GEMINI) {
+            SettingSwitch(
+                "Adaptive turn-taking (experimental)",
+                "Uses local speech activity to leave more room for thinking and serious pauses. Switch off to use Gemini server VAD.",
+                adaptiveTurns,
+            ) { adaptiveTurns = it }
+        }
+        SettingSwitch(
+            "Subtle phone audio",
+            "Adds gentle phone-like warmth and bandwidth shaping without background noise or extra API calls.",
+            phoneColoration,
+        ) { phoneColoration = it }
+
+        SettingSwitch(
+            "Same-voice listening reactions (experimental)",
+            "Quiet acknowledgments from this call only, when available. Requires a headset with echo cancellation.",
+            reactiveListening,
+        ) { reactiveListening = it }
+
         IosSectionCaption("Call identity")
         Field("Contact name", contactName, { contactName = it }, "Kenza", "Shown on the call screen.")
         Field("Personality (system prompt)", persona, { persona = it },
@@ -221,6 +243,9 @@ fun SettingsScreen(
                         weatherApiKey = weatherKey,
                         userCity = userCity,
                         earpieceFullDuplex = earpieceFullDuplex,
+                        adaptiveTurns = adaptiveTurns,
+                        phoneColoration = phoneColoration,
+                        reactiveListening = reactiveListening,
                     )
                 )
                 onBack()

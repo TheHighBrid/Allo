@@ -14,6 +14,9 @@ interface VoiceProvider {
     fun sendAudio(pcm16le16k: ByteArray)
     fun stop()
 
+    /** Local microphone activity for safe, turn-aware planned socket rotation. */
+    fun onUserSpeechActivity(active: Boolean) {}
+
     /** Content-free connection/speech/teardown timings when the provider records them. */
     fun timingSnapshot(): LiveProviderTimingSnapshot? = null
 
@@ -34,6 +37,8 @@ interface VoiceProvider {
     interface Listener {
         /** Socket open; handshake in progress. */
         fun onConnected()
+        /** A temporary socket replacement; retain the current call UI and timer. */
+        fun onReconnecting(atRisk: Boolean) {}
         /** Handshake done; [outputSampleRate] is the agent audio rate in Hz. Safe to stream mic now. */
         fun onReady(outputSampleRate: Int)
         /** A chunk of agent speech as signed-16-bit little-endian PCM at the onReady rate. */
