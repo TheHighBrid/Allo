@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - release/allo-v4.21.0
   pull_request:
     paths:
       - "app/**"
@@ -70,6 +71,24 @@ jobs:
           printf 'y\n' | "$SDKMANAGER" --install "platforms;android-37.1"
           test -f "$ANDROID_HOME/platforms/android-37.1/android.jar"
 
+      # This one-time release branch is isolated from main. Refuse to publish if
+      # the checkout no longer matches the exact main commit we audited.
+      - name: Verify release source and prevent duplicate tag
+        if: github.ref == 'refs/heads/release/allo-v4.21.0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ACTUAL_MAIN="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$ACTUAL_MAIN" = "74bce29767835d6d4528d81f057cf87f79adb0e7" || {
+            echo "::error::Main has changed since release preparation. Aborting to prevent stale release."
+            exit 1
+          }
+          if gh release view v4.21.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::v4.21.0 already exists; refusing to publish twice."
+            exit 1
+          fi
+
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
@@ -80,7 +99,7 @@ jobs:
         run: ./gradlew assembleDebug
 
       - name: Restore permanent Allo signing key
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release/allo-v4.21.0'
         env:
           ALLO_SIGNING_BUNDLE: ${{ secrets.ALLO_SIGNING_BUNDLE }}
         run: |
@@ -97,11 +116,11 @@ jobs:
           rm -f /tmp/allo-signing-bundle.zip
 
       - name: Build canonical signed update APK
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release/allo-v4.21.0'
         run: |
           set -euo pipefail
-          VERSION_CODE='${{ inputs.version_code }}'
-          VERSION_NAME='${{ inputs.version_name }}'
+          VERSION_CODE='${{ inputs.version_code || '40210' }}'
+          VERSION_NAME='${{ inputs.version_name || '4.21.0' }}'
           [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::version_code must be a positive integer"; exit 1; }
           [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || { echo "::error::version_name must be a semantic version"; exit 1; }
           echo "ALLO_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
@@ -109,7 +128,7 @@ jobs:
           ./gradlew assembleRelease -PALLO_VERSION_CODE="$VERSION_CODE" -PALLO_VERSION_NAME="$VERSION_NAME"
 
       - name: Verify package, version and signing certificate
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release/allo-v4.21.0'
         run: |
           set -euo pipefail
           RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' -print -quit)"
@@ -165,11 +184,11 @@ jobs:
       # actions/upload-artifact / download-artifact, so a full Actions artifact
       # quota cannot block an APK release.
       - name: Publish verified APK directly to GitHub Release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release/allo-v4.21.0'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          ALLO_VERSION_NAME: ${{ inputs.version_name }}
+          ALLO_VERSION_NAME: ${{ inputs.version_name || '4.21.0' }}
         run: |
           set -euo pipefail
           TAG="v${ALLO_VERSION_NAME}"
@@ -181,6 +200,6 @@ jobs:
             dist/Allo-update-*.apk \
             dist/signing-report.txt \
             dist/update-metadata.txt \
-            --target "$GITHUB_SHA" \
+            --target "74bce29767835d6d4528d81f057cf87f79adb0e7" \
             --title "Allo ${ALLO_VERSION_NAME}" \
             --generate-notes
