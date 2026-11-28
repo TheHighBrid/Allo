@@ -2,7 +2,13 @@ package com.kenza.callsim.ui.screens
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -101,7 +108,8 @@ fun IncomingCallScreen(
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                text = state.contactName,
+          
+      text = state.contactName,
                 color = Color.White,
                 fontSize = 40.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -109,7 +117,7 @@ fun IncomingCallScreen(
                 maxLines = 1
             )
             Spacer(Modifier.height(22.dp))
-            Avatar(name = state.contactName, size = 116)
+            BreathingAvatar(name = state.contactName, size = 116)
 
             Spacer(Modifier.weight(1f))
 
@@ -228,7 +236,8 @@ private fun SlideToAnswer(onAccept: () -> Unit) {
 
     Box(
         modifier = Modifier
-            .fillMaxWidth()
+         
+   .fillMaxWidth()
             .widthIn(max = 360.dp)
             .height(74.dp)
             .onSizeChanged { trackWidthPx = it.width.toFloat() }
@@ -301,6 +310,28 @@ private fun SlideToAnswer(onAccept: () -> Unit) {
 }
 
 @Composable
+private fun BreathingAvatar(name: String, size: Int) {
+    val transition = rememberInfiniteTransition(label = "avatarBreath")
+    val breath by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.035f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "avatarBreathScale",
+    )
+    Box(
+        modifier = Modifier.graphicsLayer {
+            scaleX = breath
+            scaleY = breath
+        },
+    ) {
+        Avatar(name = name, size = size)
+    }
+}
+
+@Composable
 private fun GlassShortcut(
     label: String,
     icon: ImageVector,
@@ -352,7 +383,8 @@ private fun BannerCallButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(24.dp)
+    
+        modifier = Modifier.size(24.dp)
         )
     }
 }

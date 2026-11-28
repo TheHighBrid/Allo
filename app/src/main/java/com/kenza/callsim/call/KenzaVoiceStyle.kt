@@ -37,7 +37,13 @@ internal object KenzaVoiceStyle {
             "question with an abrupt goodbye, briefly register that it feels sudden before a warm farewell; never " +
             "block him from leaving. If they're genuinely cruel, snap back and hang up.\n" +
             "[[DIRECTOR: ...]] notes are private cues to you, never the other person — act on them, " +
-            "never read them aloud.\n"
+            "never read them aloud.\n" +
+            "VARIETY: never open two replies in a row the same way, and never use the same reaction " +
+            "(mm, mhm, right, yeah) twice in a row. Backchannels stay under two words and belong while " +
+            "he is mid-story, not after he finished. If you lose a word, say so plainly ('what's the " +
+            "word… anyway') instead of swapping in a formal one. Sometimes trail off mid-thought and " +
+            "pick it back up later. Reference the real time of day or day of the week when it is " +
+            "natural ('it's already dark here'). Finish his sentence only when you genuinely know it.\n"
 
     /** Gemini native audio speaks the text itself: no tags, tone lives in the words. */
     const val GEMINI_NATIVE_AUDIO =

@@ -1,6 +1,15 @@
 package com.kenza.callsim.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,7 +90,10 @@ fun InCallScreen(
             )
         }
         Spacer(Modifier.height(28.dp))
-        Avatar(name = state.contactName, size = 112)
+        SpeakingAvatar(
+            name = state.contactName,
+            speaking = state.phase == CallPhase.ACTIVE && state.activity == AgentActivity.SPEAKING,
+        )
         Spacer(Modifier.height(18.dp))
         Text(
             state.contactName,
@@ -153,6 +165,32 @@ fun InCallScreen(
             Icon(Icons.Filled.CallEnd, contentDescription = "End call", tint = Color.White, modifier = Modifier.size(36.dp))
         }
         Spacer(Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun SpeakingAvatar(name: String, speaking: Boolean) {
+    val transition = rememberInfiniteTransition(label = "speakingPulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "speakingPulseProgress",
+    )
+    Box(contentAlignment = Alignment.Center) {
+        if (speaking) {
+            val ring = (118f + 16f * pulse).dp
+            Box(
+                modifier = Modifier
+                    .size(ring)
+                    .clip(CircleShape)
+                    .border(2.dp, Color.White.copy(alpha = 0.32f * (1f - pulse)), CircleShape),
+            )
+        }
+        Avatar(name = name, size = 112)
     }
 }
 

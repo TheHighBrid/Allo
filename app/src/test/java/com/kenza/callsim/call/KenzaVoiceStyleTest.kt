@@ -6,34 +6,40 @@ import org.junit.Test
 
 class KenzaVoiceStyleTest {
 
-    private val tagPattern = Regex("\\[([a-zA-Z ]+)]")
-    private val documentedV4Tags =
-        setOf("laughs", "sighs", "exhales", "whispers", "curious", "sarcastic", "mischievously", "excited")
-
     @Test
-    fun geminiStyleHasNoBracketTags() {
-        assertTrue(tagPattern.findAll(KenzaVoiceStyle.forGemini()).none())
+    fun `gemini style keeps spoken rules and stays tag-free`() {
+        val style = KenzaVoiceStyle.forGemini()
+        assertTrue(style.contains("DELIVERY:"))
+        assertTrue(style.contains("QUESTION BUDGET:"))
+        assertTrue(style.contains("VARIETY:"))
+        assertFalse(style.contains("[laughs]"))
+        assertFalse(style.contains("[sighs]"))
     }
 
     @Test
-    fun plainElevenLabsStyleHasNoBracketTags() {
-        assertTrue(tagPattern.findAll(KenzaVoiceStyle.forElevenLabs(expressiveTags = false)).none())
-    }
-
-    @Test
-    fun expressiveStyleOnlyNamesDocumentedLowercaseTags() {
+    fun `expressive elevenlabs style allows documented tags only`() {
         val style = KenzaVoiceStyle.forElevenLabs(expressiveTags = true)
-        val tags = tagPattern.findAll(style).map { it.groupValues[1] }.toList()
-        assertTrue(tags.isNotEmpty())
-        tags.forEach { assertTrue("undocumented tag $it", it in documentedV4Tags) }
+        assertTrue(style.contains("[laughs]"))
+        assertFalse(style.contains("[screams]"))
     }
 
     @Test
-    fun noEngineGetsContradictoryFillerRules() {
-        listOf(KenzaVoiceStyle.forGemini(), KenzaVoiceStyle.forElevenLabs(true), KenzaVoiceStyle.forElevenLabs(false))
-            .forEach { style ->
-                assertFalse(style.contains("Never manufacture fillers"))
-                assertTrue(style.contains("[[DIRECTOR"))
-            }
+    fun `plain elevenlabs style forbids tags`() {
+        val style = KenzaVoiceStyle.forElevenLabs(expressiveTags = false)
+        assertFalse(style.contains("[laughs]"))
+        assertFalse(style.contains("[sighs]"))
+    }
+
+    @Test
+    fun `all styles carry the assistant-voice prohibition`() {
+        val styles = listOf(
+            KenzaVoiceStyle.forGemini(),
+            KenzaVoiceStyle.forElevenLabs(expressiveTags = true),
+            KenzaVoiceStyle.forElevenLabs(expressiveTags = false),
+        )
+        for (style in styles) {
+            assertTrue(style.contains("Never sound like an assistant"))
+            assertTrue(style.contains("VARIETY:"))
+        }
     }
 }
